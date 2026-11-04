@@ -27,6 +27,7 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Optional
 
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
@@ -867,6 +868,36 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
+MACOS_SWIFT_SOURCE = APP_DIR / "native" / "macos_host.swift"
+MACOS_APP_BUNDLE = APP_DIR / "FiveQThoughts.app"
+MACOS_APP_BINARY = MACOS_APP_BUNDLE / "Contents" / "MacOS" / "FiveQThoughts"
+MACOS_INFO_PLIST = MACOS_APP_BUNDLE / "Contents" / "Info.plist"
+
+MACOS_PLIST_CONTENT = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>FiveQThoughts</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.mbaas.fiveqthoughts</string>
+    <key>CFBundleName</key>
+    <string>FiveQThoughts</string>
+    <key>CFBundleDisplayName</key>
+    <string>FiveQThoughts</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.1.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+"""
+
+
 def find_free_port(preferred: int = 11525) -> int:
     for port in [preferred, 11526, 11527, 0]:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -878,8 +909,107 @@ def find_free_port(preferred: int = 11525) -> int:
     return 11525
 
 
-def open_app_window(url: str):
-    """Open the UI in a compact chromeless app window (Chrome/Edge/Brave) or fallback to default browser."""
+def ensure_macos_native_app() -> Optional[Path]:
+    """Compile native/macos_host.swift into FiveQThoughts.app if needed."""
+    if platform.system() != "Darwin" or not MACOS_SWIFT_SOURCE.is_file():
+        return None
+
+    MACOS_APP_BINARY.parent.mkdir(parents=True, exist_ok=True)
+    if not MACOS_INFO_PLIST.is_file():
+        MACOS_INFO_PLIST.write_text(MACOS_PLIST_CONTENT, encoding="utf-8")
+
+    needs_build = not MACOS_APP_BINARY.is_file()
+    if not needs_build:
+        try:
+            needs_build = MACOS_SWIFT_SOURCE.stat().st_mtime > MACOS_APP_BINARY.stat().st_mtime
+        except OSError:
+            needs_build = True
+
+    if needs_build:
+        swiftc = "/usr/bin/swiftc"
+        if not os.path.isfile(swiftc):
+            return None
+        print("Kompiliere native macOS-App (FiveQThoughts.app)...")
+        proc = subprocess.run(
+            [swiftc, "-O", str(MACOS_SWIFT_SOURCE), "-o", str(MACOS_APP_BINARY)],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            print(f"Warnung: Native macOS-App konnte nicht kompiliert werden: {proc.stderr}")
+            return None
+
+    return MACOS_APP_BINARY if MACOS_APP_BINARY.is_file() else None
+
+
+def start_windows_global_hotkey(url: str):
+    """Register global hotkey Ctrl+Alt+Q on Windows to toggle or summon FiveQThoughts."""
+    if platform.system() != "Windows":
+        return
+
+    def _hotkey_loop():
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            user32 = ctypes.windll.user32
+            MOD_ALT = 0x0001
+            MOD_CONTROL = 0x0002
+            MOD_NOREPEAT = 0x4000
+            VK_Q = 0x51
+            WM_HOTKEY = 0x0312
+            SW_RESTORE = 9
+            SW_MINIMIZE = 6
+            HOTKEY_ID = 1
+
+            if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, VK_Q):
+                return
+
+            print("Globaler Shortcut aktiv: Ctrl+Alt+Q (Fenster ein-/ausblenden)")
+
+            def _toggle_or_open():
+                matched_hwnd = []
+
+                WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+                def _enum_cb(hwnd, lparam):
+                    if user32.IsWindowVisible(hwnd):
+                        length = user32.GetWindowTextLengthW(hwnd)
+                        if length > 0:
+                            buf = ctypes.create_unicode_buffer(length + 1)
+                            user32.GetWindowTextW(hwnd, buf, length + 1)
+                            if "FiveQThoughts" in buf.value:
+                                matched_hwnd.append(hwnd)
+                                return False
+                    return True
+
+                user32.EnumWindows(WNDENUMPROC(_enum_cb), 0)
+                if matched_hwnd:
+                    hwnd = matched_hwnd[0]
+                    fg = user32.GetForegroundWindow()
+                    if fg == hwnd and not user32.IsIconic(hwnd):
+                        user32.ShowWindow(hwnd, SW_MINIMIZE)
+                    else:
+                        user32.ShowWindow(hwnd, SW_RESTORE)
+                        user32.SetForegroundWindow(hwnd)
+                else:
+                    open_browser_app_window(url)
+
+            msg = wintypes.MSG()
+            while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+                if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                    _toggle_or_open()
+                user32.TranslateMessage(ctypes.byref(msg))
+                user32.DispatchMessageW(ctypes.byref(msg))
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_hotkey_loop, daemon=True)
+    t.start()
+
+
+def open_browser_app_window(url: str):
+    """Fallback: Open the UI in a compact chromeless app window (Edge/Chrome/Brave) or default browser."""
     system = platform.system()
     candidates = []
 
@@ -900,8 +1030,8 @@ def open_app_window(url: str):
                 continue
             candidates.extend(
                 [
-                    os.path.join(base, "Google", "Chrome", "Application", "chrome.exe"),
                     os.path.join(base, "Microsoft", "Edge", "Application", "msedge.exe"),
+                    os.path.join(base, "Google", "Chrome", "Application", "chrome.exe"),
                     os.path.join(base, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
                 ]
             )
@@ -926,7 +1056,8 @@ def main():
     parser.add_argument("--base-url", help="TheBrain Local API Base URL (default: http://localhost:11524)")
     parser.add_argument("--api-key", help="TheBrain Local API Bearer Token (from Settings > User > Local API)")
     parser.add_argument("--port", type=int, default=0, help="Local port for FiveQThoughts UI (default: auto)")
-    parser.add_argument("--no-browser", action="store_true", help="Do not open browser window automatically")
+    parser.add_argument("--no-browser", action="store_true", help="Do not open window automatically")
+    parser.add_argument("--browser-mode", action="store_true", help="Force browser mode instead of native macOS window")
     args = parser.parse_args()
 
     if args.base_url or args.api_key:
@@ -947,8 +1078,28 @@ def main():
     else:
         print("Hinweis: Noch kein API Key hinterlegt. Bitte in der App unter 'API-Einstellungen' eingeben.")
 
+    # Native macOS standalone app mode (own ⌘+Tab entry, Menu Bar ⚡5Q, global hotkey ⌃⌥Q)
+    if not args.no_browser and not args.browser_mode and platform.system() == "Darwin":
+        native_bin = ensure_macos_native_app()
+        if native_bin:
+            server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+            server_thread.start()
+            print("Starte eigenständige macOS-App FiveQThoughts (Globaler Shortcut: ⌃⌥Q)...")
+            native_proc = subprocess.Popen([str(native_bin), "--url", url])
+            try:
+                native_proc.wait()
+            except KeyboardInterrupt:
+                native_proc.terminate()
+            finally:
+                print("\nFiveQThoughts beendet.")
+                server.shutdown()
+                server.server_close()
+            return
+
     if not args.no_browser:
-        threading.Timer(0.4, open_app_window, args=(url,)).start()
+        if platform.system() == "Windows":
+            start_windows_global_hotkey(url)
+        threading.Timer(0.4, open_browser_app_window, args=(url,)).start()
 
     try:
         server.serve_forever()
