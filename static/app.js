@@ -5,18 +5,42 @@ const state = {
   allSummaries: [],
   totalCount: 0,
   cardCount: 5,
+  signature: "",
+  autoSync: true,
   instantDelete: false,
   confirmingDeleteId: null,
   lightboxImage: null,
+  // Editor state (Create or Edit)
+  editingThoughtId: null, // null = create mode, string = edit mode
+  existingFiles: [], // [{id, name, proxyUrl, byteLength}]
+  deletedFileIds: [], // string[]
+  stagedAttachments: [], // [{name, contentType, dataUrl, byteLength}]
 };
 
 const els = {
   statusSubtitle: document.getElementById("statusSubtitle"),
+  newThoughtBtn: document.getElementById("newThoughtBtn"),
+  autoSyncToggle: document.getElementById("autoSyncToggle"),
+  syncDot: document.getElementById("syncDot"),
   instantDeleteToggle: document.getElementById("instantDeleteToggle"),
   refreshBtn: document.getElementById("refreshBtn"),
   settingsBtn: document.getElementById("settingsBtn"),
   errorBanner: document.getElementById("errorBanner"),
   cardsGrid: document.getElementById("cardsGrid"),
+  // Editor modal
+  editorModal: document.getElementById("editorModal"),
+  editorModalTitle: document.getElementById("editorModalTitle"),
+  closeEditorBtn: document.getElementById("closeEditorBtn"),
+  cancelEditorBtn: document.getElementById("cancelEditorBtn"),
+  editorForm: document.getElementById("editorForm"),
+  editorMarkdown: document.getElementById("editorMarkdown"),
+  editorLinks: document.getElementById("editorLinks"),
+  pasteClipboardImgBtn: document.getElementById("pasteClipboardImgBtn"),
+  editorFileInput: document.getElementById("editorFileInput"),
+  pasteInlineToggle: document.getElementById("pasteInlineToggle"),
+  editorAttachmentsWrap: document.getElementById("editorAttachmentsWrap"),
+  saveEditorBtn: document.getElementById("saveEditorBtn"),
+  // Settings modal
   settingsModal: document.getElementById("settingsModal"),
   closeSettingsBtn: document.getElementById("closeSettingsBtn"),
   cancelSettingsBtn: document.getElementById("cancelSettingsBtn"),
@@ -25,6 +49,7 @@ const els = {
   apiKeyInput: document.getElementById("apiKeyInput"),
   cardCountInput: document.getElementById("cardCountInput"),
   currentKeyHint: document.getElementById("currentKeyHint"),
+  // Lightbox
   lightboxModal: document.getElementById("lightboxModal"),
   lightboxTitle: document.getElementById("lightboxTitle"),
   lightboxImg: document.getElementById("lightboxImg"),
@@ -34,6 +59,7 @@ const els = {
 };
 
 let toastTimer = null;
+let pollIntervalId = null;
 
 function showToast(msg, isError = false) {
   els.toast.textContent = msg;
@@ -94,7 +120,6 @@ function shortDevice(deviceName) {
 
 function getCleanNoteText(card) {
   const md = (card.markdown || "").trim();
-  // Remove inline markdown image syntax for clean text display if desired, or keep text around it
   return md.replace(/!\[[^\]]*\]\([^)]+\)/g, "").trim();
 }
 
@@ -118,14 +143,12 @@ async function copyTextAction(card, buttonEl) {
 
   const origLabel = buttonEl ? buttonEl.innerHTML : "";
   try {
-    // Primary: Native OS clipboard via backend (works reliably across macOS & Windows)
     const resp = await fetch("/api/clipboard/text", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     });
     if (!resp.ok) {
-      // Fallback: browser clipboard API
       await navigator.clipboard.writeText(text);
     }
     if (buttonEl) {
@@ -141,7 +164,7 @@ async function copyTextAction(card, buttonEl) {
     try {
       await navigator.clipboard.writeText(text);
       showToast("Text in die Zwischenablage kopiert!");
-    } catch (e2) {
+    } catch (_) {
       showToast(`Kopieren fehlgeschlagen: ${err.message}`, true);
     }
   }
@@ -207,13 +230,11 @@ async function deleteThoughtAction(thoughtId) {
       throw new Error(errData.error || `HTTP ${resp.status}`);
     }
 
-    // Remove from local state
     state.cards = state.cards.filter((c) => c.id !== thoughtId);
     state.allSummaries = state.allSummaries.filter((s) => s.id !== thoughtId);
     state.totalCount = Math.max(0, state.totalCount - 1);
     state.confirmingDeleteId = null;
 
-    // Check if there is a next thought in allSummaries not currently displayed in state.cards
     const displayedIds = new Set(state.cards.map((c) => c.id));
     const nextCandidate = state.allSummaries.find((s) => !displayedIds.has(s.id));
 
@@ -225,8 +246,7 @@ async function deleteThoughtAction(thoughtId) {
           state.cards.push(nextDto);
         }
       } catch (_) {
-        // Fallback full reload if single fetch fails
-        await loadThoughts();
+        await loadThoughts(false);
         return;
       }
     }
@@ -241,6 +261,243 @@ async function deleteThoughtAction(thoughtId) {
     showToast(`Löschen fehlgeschlagen: ${err.message}`, true);
   }
 }
+
+/* --- Create & Edit Quick Thought Modal --- */
+
+function formatLinksForTextarea(links) {
+  if (!links || !links.length) return "";
+  return links
+    .map((l) => {
+      if (l.title && l.title !== l.url) {
+        return `${l.title} | ${l.url}`;
+      }
+      return l.url;
+    })
+    .join("\n");
+}
+
+function parseLinksFromTextarea(raw) {
+  const lines = (raw || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const result = [];
+  for (const line of lines) {
+    if (line.includes("|")) {
+      const [titlePart, urlPart] = line.split("|", 2).map((s) => s.trim());
+      if (urlPart) {
+        result.push({ title: titlePart || null, url: urlPart });
+      }
+    } else {
+      result.push({ title: null, url: line });
+    }
+  }
+  return result;
+}
+
+function openCreateModal() {
+  state.editingThoughtId = null;
+  state.existingFiles = [];
+  state.deletedFileIds = [];
+  state.stagedAttachments = [];
+
+  els.editorModalTitle.textContent = "Neuer Quick Thought";
+  els.editorMarkdown.value = "";
+  els.editorLinks.value = "";
+  renderEditorAttachments();
+  els.editorModal.classList.remove("hidden");
+  setTimeout(() => els.editorMarkdown.focus(), 50);
+}
+
+function openEditModal(card) {
+  state.editingThoughtId = card.id;
+  state.existingFiles = [...(card.attachedImages || []), ...(card.otherFiles || [])];
+  state.deletedFileIds = [];
+  state.stagedAttachments = [];
+
+  els.editorModalTitle.textContent = "Quick Thought bearbeiten";
+  els.editorMarkdown.value = card.markdown || "";
+  els.editorLinks.value = formatLinksForTextarea(card.links || []);
+  renderEditorAttachments();
+  els.editorModal.classList.remove("hidden");
+  setTimeout(() => els.editorMarkdown.focus(), 50);
+}
+
+function closeEditorModal() {
+  els.editorModal.classList.add("hidden");
+  state.editingThoughtId = null;
+}
+
+function renderEditorAttachments() {
+  const remainingExisting = state.existingFiles.filter(
+    (f) => !state.deletedFileIds.includes(f.id)
+  );
+  const total = remainingExisting.length + state.stagedAttachments.length;
+
+  if (total === 0) {
+    els.editorAttachmentsWrap.classList.add("hidden");
+    els.editorAttachmentsWrap.innerHTML = "";
+    return;
+  }
+
+  els.editorAttachmentsWrap.classList.remove("hidden");
+  els.editorAttachmentsWrap.innerHTML = "";
+
+  remainingExisting.forEach((f) => {
+    const item = document.createElement("div");
+    item.className = "editor-att-item";
+    const isImg = f.origin === "attachment";
+    item.innerHTML = `
+      ${isImg ? `<img src="${escapeAttr(f.proxyUrl)}" alt="${escapeAttr(f.name)}" />` : ""}
+      <div class="editor-att-meta">
+        <span class="editor-att-name" title="${escapeAttr(f.name)}">${escapeHtml(f.name)}</span>
+        <button type="button" class="editor-att-remove" title="Anhang entfernen">✕</button>
+      </div>
+    `;
+    item.querySelector(".editor-att-remove").addEventListener("click", () => {
+      state.deletedFileIds.push(f.id);
+      renderEditorAttachments();
+    });
+    els.editorAttachmentsWrap.appendChild(item);
+  });
+
+  state.stagedAttachments.forEach((att, idx) => {
+    const item = document.createElement("div");
+    item.className = "editor-att-item";
+    const isImg = (att.contentType || "").startsWith("image/");
+    item.innerHTML = `
+      ${isImg ? `<img src="${escapeAttr(att.dataUrl)}" alt="${escapeAttr(att.name)}" />` : ""}
+      <div class="editor-att-meta">
+        <span class="editor-att-name" title="${escapeAttr(att.name)}">🆕 ${escapeHtml(att.name)}</span>
+        <button type="button" class="editor-att-remove" title="Wieder entfernen">✕</button>
+      </div>
+    `;
+    item.querySelector(".editor-att-remove").addEventListener("click", () => {
+      state.stagedAttachments.splice(idx, 1);
+      renderEditorAttachments();
+    });
+    els.editorAttachmentsWrap.appendChild(item);
+  });
+}
+
+function addImageToEditor({ name, contentType, dataUrl, byteLength }) {
+  if (els.pasteInlineToggle.checked) {
+    // Insert as inline markdown data URI at cursor position
+    const ta = els.editorMarkdown;
+    const mdImg = `\n![${name || "Grafik"}](${dataUrl})\n`;
+    const start = ta.selectionStart ?? ta.value.length;
+    const end = ta.selectionEnd ?? ta.value.length;
+    ta.value = ta.value.slice(0, start) + mdImg + ta.value.slice(end);
+    showToast("Grafik als Inline-Markdown eingefügt!");
+  } else {
+    state.stagedAttachments.push({
+      name: name || `Clipboard-${Date.now()}.png`,
+      contentType: contentType || "image/png",
+      dataUrl,
+      byteLength: byteLength || 0,
+    });
+    renderEditorAttachments();
+    showToast(`Grafik "${name}" als Anhang hinzugefügt!`);
+  }
+}
+
+async function fetchImageFromOsClipboard() {
+  els.pasteClipboardImgBtn.disabled = true;
+  const orig = els.pasteClipboardImgBtn.innerHTML;
+  els.pasteClipboardImgBtn.innerHTML = "⏳ Lese Clipboard…";
+  try {
+    const resp = await fetch("/api/clipboard/image");
+    const data = await resp.json();
+    if (!resp.ok) {
+      throw new Error(data.error || "Keine Grafik im Clipboard");
+    }
+    addImageToEditor({
+      name: data.name,
+      contentType: data.contentType,
+      dataUrl: data.dataUrl,
+      byteLength: data.byteLength,
+    });
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    els.pasteClipboardImgBtn.disabled = false;
+    els.pasteClipboardImgBtn.innerHTML = orig;
+  }
+}
+
+function handleFileInputList(fileList) {
+  Array.from(fileList || []).forEach((file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      addImageToEditor({
+        name: file.name || `Clipboard-${Date.now()}.png`,
+        contentType: file.type || "application/octet-stream",
+        dataUrl: reader.result,
+        byteLength: file.size || 0,
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function saveEditorSubmit(e) {
+  if (e) e.preventDefault();
+  const markdown = els.editorMarkdown.value;
+  const links = parseLinksFromTextarea(els.editorLinks.value);
+
+  els.saveEditorBtn.disabled = true;
+  const origText = els.saveEditorBtn.textContent;
+  els.saveEditorBtn.textContent = "⏳ Speichere…";
+
+  try {
+    if (state.editingThoughtId) {
+      const resp = await fetch(`/api/thoughts/${encodeURIComponent(state.editingThoughtId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          markdown,
+          links,
+          newAttachments: state.stagedAttachments,
+          deleteFileIds: state.deletedFileIds,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.error || `HTTP ${resp.status}`);
+      }
+      closeEditorModal();
+      showToast("Quick Thought aktualisiert!");
+      await loadThoughts(false);
+    } else {
+      if (!markdown.trim() && links.length === 0 && state.stagedAttachments.length === 0) {
+        throw new Error("Bitte Text, Link oder Grafik eingeben.");
+      }
+      const resp = await fetch("/api/thoughts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          markdown,
+          links,
+          attachments: state.stagedAttachments,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.error || `HTTP ${resp.status}`);
+      }
+      closeEditorModal();
+      showToast("Neuer Quick Thought angelegt!");
+      await loadThoughts(false);
+    }
+  } catch (err) {
+    showToast(`Fehler beim Speichern: ${err.message}`, true);
+  } finally {
+    els.saveEditorBtn.disabled = false;
+    els.saveEditorBtn.textContent = origText;
+  }
+}
+
+/* --- Lightbox --- */
 
 function openLightbox(thoughtId, imgItem) {
   state.lightboxImage = { thoughtId, imgItem };
@@ -413,7 +670,8 @@ function renderCards() {
     const copyTextBtn = document.createElement("button");
     copyTextBtn.type = "button";
     copyTextBtn.className = "btn btn-secondary btn-sm";
-    copyTextBtn.innerHTML = "📋 Text kopieren";
+    copyTextBtn.innerHTML = "📋 Text";
+    copyTextBtn.title = "Notiztext in die Zwischenablage kopieren";
     copyTextBtn.addEventListener("click", () => copyTextAction(card, copyTextBtn));
     leftActions.appendChild(copyTextBtn);
 
@@ -423,12 +681,22 @@ function renderCards() {
       copyImgFooterBtn.type = "button";
       copyImgFooterBtn.className = "btn btn-secondary btn-sm";
       copyImgFooterBtn.innerHTML =
-        allImages.length === 1 ? "🖼️ Grafik kopieren" : `🖼️ 1. Grafik kopieren (${allImages.length})`;
+        allImages.length === 1 ? "🖼️ Grafik" : `🖼️ Grafik (${allImages.length})`;
+      copyImgFooterBtn.title = "Grafik als Bild in die Zwischenablage kopieren";
       copyImgFooterBtn.addEventListener("click", () =>
         copyImageAction(card.id, allImages[0], copyImgFooterBtn)
       );
       leftActions.appendChild(copyImgFooterBtn);
     }
+
+    // Edit Button
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "btn btn-secondary btn-sm";
+    editBtn.innerHTML = "✏️ Edit";
+    editBtn.title = "Quick Thought bearbeiten oder Grafik anhängen";
+    editBtn.addEventListener("click", () => openEditModal(card));
+    leftActions.appendChild(editBtn);
 
     const rightActions = document.createElement("div");
     rightActions.className = "card-footer-right";
@@ -510,9 +778,11 @@ async function loadConfig() {
   }
 }
 
-async function loadThoughts() {
+async function loadThoughts(showLoadingStatus = true) {
   els.refreshBtn.disabled = true;
-  els.statusSubtitle.textContent = "Lade Quick Thoughts über TheBrain API…";
+  if (showLoadingStatus) {
+    els.statusSubtitle.textContent = "Lade Quick Thoughts über TheBrain API…";
+  }
   showError("");
 
   try {
@@ -525,6 +795,7 @@ async function loadThoughts() {
     state.cards = data.cards || [];
     state.allSummaries = data.allSummaries || [];
     state.totalCount = data.totalCount || state.cards.length;
+    state.signature = data.signature || "";
     state.confirmingDeleteId = null;
 
     renderCards();
@@ -540,14 +811,79 @@ async function loadThoughts() {
   }
 }
 
+async function pollForUpdates() {
+  if (!state.autoSync) return;
+  // Don't interrupt user if a modal or delete confirmation is active
+  if (
+    !els.editorModal.classList.contains("hidden") ||
+    !els.settingsModal.classList.contains("hidden") ||
+    state.confirmingDeleteId
+  ) {
+    return;
+  }
+
+  try {
+    const resp = await fetch(`/api/thoughts/poll?limit=${state.cardCount}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (state.signature && data.signature && data.signature !== state.signature) {
+      await loadThoughts(false);
+      showToast("⚡ Quick Thoughts automatisch aktualisiert");
+    }
+  } catch (_) {
+    // Silent background poll error
+  }
+}
+
+function startPolling() {
+  clearInterval(pollIntervalId);
+  pollIntervalId = setInterval(pollForUpdates, 5000);
+}
+
 // Event Listeners
+els.newThoughtBtn.addEventListener("click", openCreateModal);
+els.closeEditorBtn.addEventListener("click", closeEditorModal);
+els.cancelEditorBtn.addEventListener("click", closeEditorModal);
+els.editorForm.addEventListener("submit", saveEditorSubmit);
+
+els.pasteClipboardImgBtn.addEventListener("click", fetchImageFromOsClipboard);
+els.editorFileInput.addEventListener("change", (e) => {
+  handleFileInputList(e.target.files);
+  e.target.value = "";
+});
+
+// Support pasting images directly via Cmd+V / Ctrl+V inside the Editor Modal
+els.editorModal.addEventListener("paste", (e) => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  const imageItems = Array.from(items).filter((item) => item.type.startsWith("image/"));
+  if (imageItems.length > 0) {
+    e.preventDefault();
+    imageItems.forEach((item) => {
+      const blob = item.getAsFile();
+      if (blob) handleFileInputList([blob]);
+    });
+  }
+});
+
+els.editorMarkdown.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    saveEditorSubmit(e);
+  }
+});
+
+els.autoSyncToggle.addEventListener("change", () => {
+  state.autoSync = els.autoSyncToggle.checked;
+  els.syncDot.classList.toggle("off", !state.autoSync);
+});
+
 els.instantDeleteToggle.addEventListener("change", () => {
   state.instantDelete = els.instantDeleteToggle.checked;
   state.confirmingDeleteId = null;
   renderCards();
 });
 
-els.refreshBtn.addEventListener("click", () => loadThoughts());
+els.refreshBtn.addEventListener("click", () => loadThoughts(true));
 
 els.settingsBtn.addEventListener("click", async () => {
   await loadConfig();
@@ -578,7 +914,7 @@ els.settingsForm.addEventListener("submit", async (e) => {
     state.cardCount = data.cardCount || 5;
     els.settingsModal.classList.add("hidden");
     showToast("API-Einstellungen gespeichert!");
-    await loadThoughts();
+    await loadThoughts(true);
   } catch (err) {
     showToast(`Fehler: ${err.message}`, true);
   }
@@ -599,25 +935,30 @@ els.lightboxCopyBtn.addEventListener("click", () => {
 });
 
 document.addEventListener("keydown", (e) => {
+  const activeTag = document.activeElement?.tagName;
+  const inInput = activeTag === "INPUT" || activeTag === "TEXTAREA";
+
   if (e.key === "Escape") {
     closeLightbox();
+    closeEditorModal();
     els.settingsModal.classList.add("hidden");
     if (state.confirmingDeleteId) {
       state.confirmingDeleteId = null;
       renderCards();
     }
-  } else if (
-    (e.key === "r" || e.key === "R") &&
-    !e.metaKey &&
-    !e.ctrlKey &&
-    document.activeElement.tagName !== "INPUT"
-  ) {
-    loadThoughts();
+  } else if (!inInput && !e.metaKey && !e.ctrlKey) {
+    if (e.key === "r" || e.key === "R") {
+      loadThoughts(true);
+    } else if (e.key === "n" || e.key === "N") {
+      e.preventDefault();
+      openCreateModal();
+    }
   }
 });
 
 // Initialize
 (async function init() {
   await loadConfig();
-  await loadThoughts();
+  await loadThoughts(true);
+  startPolling();
 })();

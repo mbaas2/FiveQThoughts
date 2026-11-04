@@ -7,6 +7,7 @@ Runs on macOS and Windows using only Python's standard library and TheBrain's of
 import argparse
 import base64
 import concurrent.futures
+import datetime
 import json
 import mimetypes
 import os
@@ -21,6 +22,7 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -44,7 +46,6 @@ class AppConfig:
         self.load()
 
     def load(self):
-        # Load from config files in order of precedence (lowest to highest)
         for path in [DEFAULT_CONFIG_PATH, USER_CONFIG_PATH, LOCAL_CONFIG_PATH]:
             if path.is_file():
                 try:
@@ -58,7 +59,6 @@ class AppConfig:
                 except Exception as exc:
                     print(f"[WARN] Could not read {path}: {exc}", file=sys.stderr)
 
-        # Environment variables override config files
         env_url = os.environ.get("THEBRAIN_API_URL", "").strip()
         if env_url:
             self.base_url = env_url.rstrip("/")
@@ -66,7 +66,6 @@ class AppConfig:
         if env_key:
             self.api_key = env_key
 
-        # Normalize if user pasted /mcp or /api at the end of base_url
         for suffix in ["/mcp", "/api/v2", "/api"]:
             if self.base_url.endswith(suffix):
                 self.base_url = self.base_url[: -len(suffix)].rstrip("/")
@@ -106,7 +105,13 @@ class TheBrainApiError(Exception):
         self.details = details
 
 
-def thebrain_request(method: str, path: str, timeout: float = 15.0) -> tuple[bytes, str]:
+def thebrain_request(
+    method: str,
+    path: str,
+    body: bytes = None,
+    content_type: str = None,
+    timeout: float = 20.0,
+) -> tuple[bytes, str]:
     """Perform an HTTP request against TheBrain's REST API."""
     if not CONFIG.api_key:
         raise TheBrainApiError(
@@ -115,18 +120,18 @@ def thebrain_request(method: str, path: str, timeout: float = 15.0) -> tuple[byt
         )
 
     url = f"{CONFIG.base_url}{path}"
-    req = urllib.request.Request(
-        url,
-        method=method,
-        headers={
-            "Authorization": f"Bearer {CONFIG.api_key}",
-            "Accept": "application/json, */*",
-        },
-    )
+    headers = {
+        "Authorization": f"Bearer {CONFIG.api_key}",
+        "Accept": "application/json, */*",
+    }
+    if content_type:
+        headers["Content-Type"] = content_type
+
+    req = urllib.request.Request(url, data=body, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            content_type = resp.headers.get("Content-Type", "application/octet-stream")
-            return resp.read(), content_type
+            resp_ct = resp.headers.get("Content-Type", "application/octet-stream")
+            return resp.read(), resp_ct
     except urllib.error.HTTPError as err:
         raw_body = b""
         try:
@@ -151,6 +156,28 @@ def thebrain_request(method: str, path: str, timeout: float = 15.0) -> tuple[byt
         )
 
 
+def build_multipart_formdata(files: list[dict]) -> tuple[bytes, str]:
+    """
+    Build a multipart/form-data body for uploading files to POST /api/v2/quick-thoughts/{id}/files.
+    Each item in `files` has {"name": filename, "contentType": mime, "data": bytes}.
+    """
+    boundary = f"----FiveQThoughtsBoundary{uuid.uuid4().hex}"
+    chunks = []
+    for idx, f in enumerate(files):
+        fname = (f.get("name") or f"attachment-{idx + 1}.png").replace('"', "_")
+        ctype = f.get("contentType") or mimetypes.guess_type(fname)[0] or "application/octet-stream"
+        data = f.get("data") or b""
+        chunks.append(f"--{boundary}\r\n".encode("utf-8"))
+        chunks.append(
+            f'Content-Disposition: form-data; name="files"; filename="{fname}"\r\n'.encode("utf-8")
+        )
+        chunks.append(f"Content-Type: {ctype}\r\n\r\n".encode("utf-8"))
+        chunks.append(data)
+        chunks.append(b"\r\n")
+    chunks.append(f"--{boundary}--\r\n".encode("utf-8"))
+    return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
+
+
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff", ".heic"}
 INLINE_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 
@@ -166,7 +193,7 @@ def is_image_file(name: str, content_type: str) -> bool:
 def enrich_thought_dto(dto: dict) -> dict:
     """
     Enrich a QuickThoughtDto from GET /api/v2/quick-thoughts/{id} with normalized
-    inline images and attached images so the frontend can display and copy them easily.
+    inline images and attached images so the frontend can display, copy, and edit them easily.
     """
     thought_id = dto.get("id", "")
     markdown = dto.get("markdown") or ""
@@ -175,7 +202,6 @@ def enrich_thought_dto(dto: dict) -> dict:
     for idx, match in enumerate(INLINE_IMAGE_RE.finditer(markdown)):
         alt_text = match.group(1) or ""
         raw_src = match.group(2).strip()
-        # Strip optional markdown title in!("url" "title")
         if " " in raw_src and not raw_src.startswith("data:"):
             raw_src = raw_src.split(" ", 1)[0].strip()
 
@@ -249,6 +275,24 @@ def fetch_single_thought(thought_id: str) -> dict:
     return enrich_thought_dto(dto)
 
 
+def fetch_summaries_only(limit: int = DEFAULT_CARD_COUNT) -> dict:
+    """Lightweight poll endpoint to check if the top Quick Thoughts changed."""
+    raw, _ = thebrain_request("GET", "/api/v2/quick-thoughts")
+    summaries = json.loads(raw.decode("utf-8"))
+    if not isinstance(summaries, list):
+        summaries = []
+    top = summaries[:limit]
+    signature = "|".join(
+        f"{s.get('id')}:{s.get('modifiedAt')}:{s.get('fileCount')}:{s.get('linkCount')}"
+        for s in top
+    )
+    return {
+        "totalCount": len(summaries),
+        "signature": f"{len(summaries)}#{signature}",
+        "topSummaries": top,
+    }
+
+
 def fetch_top_thoughts(limit: int = DEFAULT_CARD_COUNT) -> dict:
     raw, _ = thebrain_request("GET", "/api/v2/quick-thoughts")
     summaries = json.loads(raw.decode("utf-8"))
@@ -267,7 +311,6 @@ def fetch_top_thoughts(limit: int = DEFAULT_CARD_COUNT) -> dict:
                 try:
                     details_by_id[tid] = fut.result()
                 except Exception as exc:
-                    # Fallback to summary if detail fetch fails for one item
                     summary = next((s for s in top_summaries if s.get("id") == tid), {"id": tid})
                     details_by_id[tid] = enrich_thought_dto(
                         {
@@ -285,11 +328,105 @@ def fetch_top_thoughts(limit: int = DEFAULT_CARD_COUNT) -> dict:
                     )
 
     ordered_cards = [details_by_id[tid] for tid in top_ids if tid in details_by_id]
+    signature = "|".join(
+        f"{s.get('id')}:{s.get('modifiedAt')}:{s.get('fileCount')}:{s.get('linkCount')}"
+        for s in top_summaries
+    )
     return {
         "totalCount": len(summaries),
+        "signature": f"{len(summaries)}#{signature}",
         "cards": ordered_cards,
         "allSummaries": summaries,
     }
+
+
+def parse_data_uri_files(attachments: list[dict]) -> list[dict]:
+    """Convert frontend base64/dataUrl attachment objects into raw bytes for multipart upload."""
+    parsed = []
+    for idx, att in enumerate(attachments or []):
+        data_url = att.get("dataUrl") or ""
+        name = att.get("name") or f"Clipboard-{idx + 1}.png"
+        content_type = att.get("contentType") or "image/png"
+        if data_url.startswith("data:"):
+            header, b64_part = data_url.split(",", 1)
+            if ";" in header and ":" in header:
+                content_type = header.split(":", 1)[1].split(";", 1)[0] or content_type
+            raw_bytes = base64.b64decode(b64_part)
+        else:
+            raw_bytes = base64.b64decode(data_url)
+        parsed.append({"name": name, "contentType": content_type, "data": raw_bytes})
+    return parsed
+
+
+def create_quick_thought(markdown: str, links: list, attachments: list) -> dict:
+    """Create a new Quick Thought via POST /api/v2/quick-thoughts and upload any attached files."""
+    payload = {
+        "markdown": markdown or "",
+        "links": links or [],
+    }
+    raw_resp, _ = thebrain_request(
+        "POST",
+        "/api/v2/quick-thoughts",
+        body=json.dumps(payload).encode("utf-8"),
+        content_type="application/json",
+    )
+    dto = json.loads(raw_resp.decode("utf-8"))
+    thought_id = dto.get("id")
+
+    files_to_upload = parse_data_uri_files(attachments)
+    if thought_id and files_to_upload:
+        mp_body, mp_ct = build_multipart_formdata(files_to_upload)
+        thebrain_request(
+            "POST",
+            f"/api/v2/quick-thoughts/{urllib.parse.quote(thought_id)}/files",
+            body=mp_body,
+            content_type=mp_ct,
+            timeout=60.0,
+        )
+        dto = fetch_single_thought(thought_id)
+        return dto
+
+    return enrich_thought_dto(dto)
+
+
+def update_quick_thought(
+    thought_id: str,
+    markdown: str,
+    links: list,
+    new_attachments: list = None,
+    delete_file_ids: list = None,
+) -> dict:
+    """Update an existing Quick Thought via PATCH /api/v2/quick-thoughts/{id} and manage its files."""
+    payload = {"markdown": markdown}
+    if links is not None:
+        payload["links"] = links
+
+    thebrain_request(
+        "PATCH",
+        f"/api/v2/quick-thoughts/{urllib.parse.quote(thought_id)}",
+        body=json.dumps(payload).encode("utf-8"),
+        content_type="application/json",
+    )
+
+    for fid in delete_file_ids or []:
+        if fid:
+            thebrain_request(
+                "DELETE",
+                f"/api/v2/quick-thoughts/{urllib.parse.quote(thought_id)}/files/{urllib.parse.quote(fid)}",
+            )
+
+    files_to_upload = parse_data_uri_files(new_attachments or [])
+    if files_to_upload:
+        mp_body, mp_ct = build_multipart_formdata(files_to_upload)
+        thebrain_request(
+            "POST",
+            f"/api/v2/quick-thoughts/{urllib.parse.quote(thought_id)}/files",
+            body=mp_body,
+            content_type=mp_ct,
+            timeout=60.0,
+        )
+
+    return fetch_single_thought(thought_id)
 
 
 def copy_text_to_os_clipboard(text: str) -> None:
@@ -303,7 +440,6 @@ def copy_text_to_os_clipboard(text: str) -> None:
         if proc.returncode != 0:
             raise RuntimeError("pbcopy failed")
     elif system == "Windows":
-        # Use PowerShell Set-Clipboard reading UTF-8 from stdin
         ps_cmd = (
             "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; "
             "$inputText = [Console]::In.ReadToEnd(); "
@@ -343,7 +479,6 @@ def copy_image_bytes_to_os_clipboard(image_bytes: bytes, suffix: str = ".png") -
             if suffix.lower() == ".png":
                 png_path = src_path
             else:
-                # Convert JPEG/WebP/GIF/HEIC/TIFF to PNG via macOS built-in sips
                 subprocess.run(
                     ["/usr/bin/sips", "-s", "format", "png", str(src_path), "--out", str(png_path)],
                     check=True,
@@ -354,7 +489,6 @@ def copy_image_bytes_to_os_clipboard(image_bytes: bytes, suffix: str = ".png") -
             subprocess.run(["osascript", "-e", apple_script], check=True)
 
         elif system == "Windows":
-            # PowerShell STA mode with System.Windows.Forms.Clipboard::SetImage
             escaped_path = str(src_path).replace("'", "''")
             ps_cmd = (
                 "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; "
@@ -382,9 +516,62 @@ def copy_image_bytes_to_os_clipboard(image_bytes: bytes, suffix: str = ".png") -
                 raise RuntimeError("No image clipboard tool available.")
 
 
+def read_image_from_os_clipboard() -> tuple[bytes, str]:
+    """Read an image from the native macOS or Windows clipboard and return (png_bytes, filename)."""
+    system = platform.system()
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f"Clipboard-{timestamp}.png"
+
+    with tempfile.TemporaryDirectory(prefix="fiveq_clipread_") as tmpdir:
+        png_path = Path(tmpdir) / "clip.png"
+
+        if system == "Darwin":
+            script = f"""
+            try
+                set imgData to the clipboard as «class PNGf»
+                set fRef to open for access POSIX file "{png_path}" with write permission
+                set eof fRef to 0
+                write imgData to fRef
+                close access fRef
+                return "OK"
+            on error errMsg
+                try
+                    close access POSIX file "{png_path}"
+                end try
+                return "ERR:" & errMsg
+            end try
+            """
+            res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+            out = res.stdout.strip()
+            if not out.startswith("OK") or not png_path.is_file() or png_path.stat().st_size == 0:
+                raise ValueError("Keine Grafik in der System-Zwischenablage gefunden.")
+            return png_path.read_bytes(), filename
+
+        elif system == "Windows":
+            escaped_path = str(png_path).replace("'", "''")
+            ps_cmd = (
+                "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; "
+                "if ([System.Windows.Forms.Clipboard]::ContainsImage()) { "
+                "  $img = [System.Windows.Forms.Clipboard]::GetImage(); "
+                f"  try {{ $img.Save('{escaped_path}', [System.Drawing.Imaging.ImageFormat]::Png); Write-Output 'OK' }} "
+                "  finally { $img.Dispose() } "
+                "} else { Write-Output 'EMPTY' }"
+            )
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-STA", "-Command", ps_cmd],
+                capture_output=True,
+                text=True,
+            )
+            if "OK" not in res.stdout or not png_path.is_file():
+                raise ValueError("Keine Grafik in der Windows-Zwischenablage gefunden.")
+            return png_path.read_bytes(), filename
+
+        else:
+            raise ValueError("Lesen von Bildern aus der System-Zwischenablage wird auf diesem OS nur über Cmd+V / Ctrl+V unterstützt.")
+
+
 class FiveQRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        # Keep console logs concise
         pass
 
     def _send_json(self, status: int, payload: dict):
@@ -422,6 +609,12 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            if path == "/api/thoughts/poll":
+                limit = int(qs.get("limit", [CONFIG.card_count])[0])
+                data = fetch_summaries_only(limit=limit)
+                self._send_json(HTTPStatus.OK, data)
+                return
+
             if path == "/api/thoughts":
                 limit = int(qs.get("limit", [CONFIG.card_count])[0])
                 data = fetch_top_thoughts(limit=limit)
@@ -432,6 +625,21 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                 thought_id = urllib.parse.unquote(path.split("/api/thoughts/", 1)[1].strip("/"))
                 dto = fetch_single_thought(thought_id)
                 self._send_json(HTTPStatus.OK, dto)
+                return
+
+            if path == "/api/clipboard/image":
+                img_bytes, fname = read_image_from_os_clipboard()
+                b64 = base64.b64encode(img_bytes).decode("ascii")
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "ok": True,
+                        "name": fname,
+                        "contentType": "image/png",
+                        "byteLength": len(img_bytes),
+                        "dataUrl": f"data:image/png;base64,{b64}",
+                    },
+                )
                 return
 
             if path == "/api/proxy/file":
@@ -488,7 +696,6 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(raw)
                 return
 
-            # Static files
             if path == "/" or path == "/index.html":
                 self._serve_static(STATIC_DIR / "index.html", "text/html; charset=utf-8")
                 return
@@ -519,12 +726,10 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
             if path == "/api/config":
                 base_url = body.get("baseUrl") or CONFIG.base_url
                 api_key = body.get("apiKey")
-                # If apiKey is omitted or empty, keep existing key unless explicitly cleared
                 if api_key is None or api_key == "":
                     api_key = CONFIG.api_key
                 card_count = int(body.get("cardCount") or CONFIG.card_count)
                 CONFIG.save(base_url=base_url, api_key=api_key, card_count=card_count)
-                # Test the connection
                 data = fetch_top_thoughts(limit=CONFIG.card_count)
                 self._send_json(
                     HTTPStatus.OK,
@@ -536,6 +741,14 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                         "totalCount": data["totalCount"],
                     },
                 )
+                return
+
+            if path == "/api/thoughts":
+                markdown = body.get("markdown") or ""
+                links = body.get("links") or []
+                attachments = body.get("attachments") or []
+                created_dto = create_quick_thought(markdown=markdown, links=links, attachments=attachments)
+                self._send_json(HTTPStatus.OK, created_dto)
                 return
 
             if path == "/api/clipboard/text":
@@ -564,7 +777,7 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                         timeout=30.0,
                     )
                 elif source_kind == "data" and raw_url.startswith("data:image/"):
-                    header, b64_data = raw_url.split(",", 1)
+                    _, b64_data = raw_url.split(",", 1)
                     img_bytes = base64.b64decode(b64_data)
                 elif source_kind == "external" and (raw_url.startswith("http://") or raw_url.startswith("https://")):
                     req = urllib.request.Request(raw_url, headers={"User-Agent": "FiveQThoughts/1.0"})
@@ -576,6 +789,38 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                 suffix = Path(file_name).suffix or ".png"
                 copy_image_bytes_to_os_clipboard(img_bytes, suffix=suffix)
                 self._send_json(HTTPStatus.OK, {"ok": True})
+                return
+
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": f"Unknown endpoint: {path}"})
+
+        except TheBrainApiError as api_err:
+            self._send_json(
+                api_err.status,
+                {"error": api_err.message, "status": api_err.status, "details": api_err.details},
+            )
+        except Exception as exc:
+            self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+
+    def do_PATCH(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        try:
+            if path.startswith("/api/thoughts/"):
+                thought_id = urllib.parse.unquote(path.split("/api/thoughts/", 1)[1].strip("/"))
+                body = self._read_json_body()
+                markdown = body.get("markdown") if "markdown" in body else ""
+                links = body.get("links")
+                new_attachments = body.get("newAttachments") or []
+                delete_file_ids = body.get("deleteFileIds") or []
+                updated_dto = update_quick_thought(
+                    thought_id=thought_id,
+                    markdown=markdown,
+                    links=links,
+                    new_attachments=new_attachments,
+                    delete_file_ids=delete_file_ids,
+                )
+                self._send_json(HTTPStatus.OK, updated_dto)
                 return
 
             self._send_json(HTTPStatus.NOT_FOUND, {"error": f"Unknown endpoint: {path}"})
@@ -665,7 +910,7 @@ def open_app_window(url: str):
         if os.path.isfile(binary):
             try:
                 subprocess.Popen(
-                    [binary, f"--app={url}", "--window-size=1160,840"],
+                    [binary, f"--app={url}", "--window-size=1180,860"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )

@@ -17,6 +17,16 @@
     </div>
 
     <div class="topbar-actions">
+      <button id="newThoughtBtn" class="btn btn-primary" title="Neuen Quick Thought anlegen (Taste N)">
+        ＋ Neu
+      </button>
+
+      <label class="toggle-label" title="Prüft alle 5 Sekunden automatisch im Hintergrund auf neue oder geänderte Quick Thoughts.">
+        <input type="checkbox" id="autoSyncToggle" checked />
+        <span class="sync-dot" id="syncDot"></span>
+        <span>Live-Sync</span>
+      </label>
+
       <label class="toggle-label" title="Wenn aktiviert, werden Quick Thoughts beim Klick auf 'Löschen' sofort ohne Sicherheitsabfrage gelöscht.">
         <input type="checkbox" id="instantDeleteToggle" />
         <span>Sofort löschen</span>
@@ -39,6 +49,64 @@
       <!-- 5 Quick Thought cards rendered here -->
     </div>
   </main>
+
+  <!-- Create / Edit Quick Thought Modal -->
+  <div id="editorModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="editorModalTitle">
+    <div class="modal-card modal-card-wide">
+      <div class="modal-header">
+        <h2 id="editorModalTitle">Neuer Quick Thought</h2>
+        <button id="closeEditorBtn" class="btn-icon" aria-label="Schließen">✕</button>
+      </div>
+      <form id="editorForm" class="modal-body">
+        <div class="field">
+          <div class="field-label-row">
+            <label for="editorMarkdown">Notiz (Markdown)</label>
+            <span class="field-hint">Tipp: <code>⌘V</code> / <code>Ctrl+V</code> fügt Bilder direkt aus der Zwischenablage ein</span>
+          </div>
+          <textarea
+            id="editorMarkdown"
+            rows="7"
+            placeholder="Gedanke, Markdown-Notiz oder Text eingeben…"
+          ></textarea>
+        </div>
+
+        <div class="field">
+          <label for="editorLinks">Web-Links (optional, eine URL pro Zeile, optional mit <code>Titel | https://...</code>)</label>
+          <textarea
+            id="editorLinks"
+            rows="2"
+            placeholder="https://example.com&#10;Mein Titel | https://example.org"
+          ></textarea>
+        </div>
+
+        <!-- Clipboard / File Image Controls -->
+        <div class="editor-media-bar">
+          <div class="editor-media-buttons">
+            <button type="button" id="pasteClipboardImgBtn" class="btn btn-secondary btn-sm">
+              🖼️ Grafik aus Clipboard holen
+            </button>
+            <label class="btn btn-secondary btn-sm file-upload-btn">
+              📎 Datei/Grafik wählen
+              <input type="file" id="editorFileInput" multiple accept="image/*,*/*" class="hidden" />
+            </label>
+          </div>
+
+          <label class="toggle-label" title="Wenn aktiviert, werden eingefügte Clipboard-Grafiken als ![](data:image/...) direkt in den Markdown-Text eingebettet statt als Datei-Anhang.">
+            <input type="checkbox" id="pasteInlineToggle" />
+            <span>Als Inline-Grafik im Text</span>
+          </label>
+        </div>
+
+        <!-- Existing & Staged Attachments -->
+        <div id="editorAttachmentsWrap" class="editor-attachments hidden"></div>
+
+        <div class="modal-footer">
+          <button type="button" id="cancelEditorBtn" class="btn btn-ghost">Abbrechen</button>
+          <button type="submit" id="saveEditorBtn" class="btn btn-primary">Speichern (⌘↵)</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- Settings Modal -->
   <div id="settingsModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
