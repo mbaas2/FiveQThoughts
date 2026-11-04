@@ -24,20 +24,25 @@
         ＋ Neu
       </button>
 
-      <label class="toggle-label" title="Prüft alle 5 Sekunden automatisch im Hintergrund auf neue oder geänderte Quick Thoughts.">
+      <label class="toggle-label" id="autoSyncLabel" title="Prüft alle 5 Sekunden automatisch im Hintergrund auf neue oder geänderte Quick Thoughts.">
         <input type="checkbox" id="autoSyncToggle" checked />
         <span class="sync-dot" id="syncDot"></span>
-        <span>Live-Sync</span>
+        <span id="autoSyncText">Live-Sync</span>
       </label>
 
-      <label class="toggle-label" title="Wenn aktiviert, werden Quick Thoughts beim Klick auf 'Löschen' sofort ohne Sicherheitsabfrage gelöscht.">
+      <label class="toggle-label" id="instantDeleteLabel" title="Wenn aktiviert, werden Quick Thoughts beim Klick auf 'Löschen' sofort ohne Sicherheitsabfrage gelöscht.">
         <input type="checkbox" id="instantDeleteToggle" />
-        <span>Sofort löschen</span>
+        <span id="instantDeleteText">Sofort löschen</span>
       </label>
 
       <button id="refreshBtn" class="btn btn-secondary" title="Neu laden (Taste R)">
         ↻ Aktualisieren
       </button>
+
+      <select id="langSelect" class="lang-select" title="Sprache wählen / Select language" aria-label="Language">
+        <option value="de">🇩🇪 DE</option>
+        <option value="en">🇬🇧 EN</option>
+      </select>
 
       <button id="settingsBtn" class="btn btn-ghost" title="API-URL & Bearer Token konfigurieren">
         ⚙ API
@@ -63,8 +68,8 @@
       <form id="editorForm" class="modal-body">
         <div class="field">
           <div class="field-label-row">
-            <label for="editorMarkdown">Notiz (Markdown)</label>
-            <span class="field-hint">Tipp: <code>⌘V</code> / <code>Ctrl+V</code> fügt Bilder direkt aus der Zwischenablage ein</span>
+            <label for="editorMarkdown" id="editorNoteLabel">Notiz (Markdown)</label>
+            <span class="field-hint" id="editorNoteHint">Tipp: <code>⌘V</code> / <code>Ctrl+V</code> fügt Bilder direkt aus der Zwischenablage ein</span>
           </div>
           <textarea
             id="editorMarkdown"
@@ -74,7 +79,7 @@
         </div>
 
         <div class="field">
-          <label for="editorLinks">Web-Links (optional, eine URL pro Zeile, optional mit <code>Titel | https://...</code>)</label>
+          <label for="editorLinks" id="editorLinksLabel">Web-Links (optional, eine URL pro Zeile, optional mit <code>Titel | https://...</code>)</label>
           <textarea
             id="editorLinks"
             rows="2"
@@ -89,14 +94,14 @@
               🖼️ Grafik aus Clipboard holen
             </button>
             <label class="btn btn-secondary btn-sm file-upload-btn">
-              📎 Datei/Grafik wählen
+              <span id="chooseFileText">📎 Datei/Grafik wählen</span>
               <input type="file" id="editorFileInput" multiple accept="image/*,*/*" class="hidden" />
             </label>
           </div>
 
-          <label class="toggle-label" title="Wenn aktiviert, werden eingefügte Clipboard-Grafiken als ![](data:image/...) direkt in den Markdown-Text eingebettet statt als Datei-Anhang.">
+          <label class="toggle-label" id="pasteInlineLabelWrap" title="Wenn aktiviert, werden eingefügte Clipboard-Grafiken als ![](data:image/...) direkt in den Markdown-Text eingebettet statt als Datei-Anhang.">
             <input type="checkbox" id="pasteInlineToggle" />
-            <span>Als Inline-Grafik im Text</span>
+            <span id="pasteInlineText">Als Inline-Grafik im Text</span>
           </label>
         </div>
 
@@ -120,25 +125,34 @@
       </div>
       <form id="settingsForm" class="modal-body">
         <div class="field">
-          <label for="baseUrlInput">TheBrain Server URL</label>
+          <label for="baseUrlInput" id="settingsUrlLabel">TheBrain Server URL</label>
           <input type="url" id="baseUrlInput" placeholder="http://localhost:11524" required />
-          <small>Standard lokal: <code>http://localhost:11524</code> (Endpunkt <code>/api/v2/quick-thoughts</code>)</small>
+          <small id="settingsUrlHint">Standard lokal: <code>http://localhost:11524</code> (Endpunkt <code>/api/v2/quick-thoughts</code>)</small>
         </div>
 
         <div class="field">
-          <label for="apiKeyInput">Local API Key (Bearer Token)</label>
+          <label for="apiKeyInput" id="settingsKeyLabel">Local API Key (Bearer Token)</label>
           <input type="password" id="apiKeyInput" placeholder="Neuen Key eingeben (leer lassen zum Beibehalten)" autocomplete="off" />
           <small id="currentKeyHint">Zu finden in TheBrain 15 unter <strong>Settings &gt; User &gt; Local API</strong>.</small>
         </div>
 
         <div class="field">
-          <label for="cardCountInput">Anzahl angezeigter Karten</label>
+          <label for="cardCountInput" id="settingsCountLabel">Anzahl angezeigter Karten</label>
           <input type="number" id="cardCountInput" min="1" max="20" value="5" required />
+        </div>
+
+        <div class="field">
+          <label for="settingsLangSelect" id="settingsLangLabel">Sprache / Language</label>
+          <select id="settingsLangSelect">
+            <option value="auto" id="settingsLangAutoOpt">Automatisch (Systemsprache)</option>
+            <option value="de">Deutsch (de)</option>
+            <option value="en">English (en)</option>
+          </select>
         </div>
 
         <div class="modal-footer">
           <button type="button" id="cancelSettingsBtn" class="btn btn-ghost">Abbrechen</button>
-          <button type="submit" class="btn btn-primary">Speichern &amp; Verbinden</button>
+          <button type="submit" id="saveSettingsBtn" class="btn btn-primary">Speichern &amp; Verbinden</button>
         </div>
       </form>
     </div>

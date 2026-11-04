@@ -59,6 +59,7 @@ class AppConfig:
         self.base_url: str = DEFAULT_BASE_URL
         self.api_key: str = ""
         self.card_count: int = DEFAULT_CARD_COUNT
+        self.language: str = "auto"
         self.load()
 
     def load(self):
@@ -72,6 +73,8 @@ class AppConfig:
                         self.api_key = str(data["apiKey"]).strip()
                     if data.get("cardCount"):
                         self.card_count = int(data["cardCount"])
+                    if data.get("language"):
+                        self.language = str(data["language"]).strip().lower()
                 except Exception as exc:
                     print(f"[WARN] Could not read {path}: {exc}", file=sys.stderr)
 
@@ -86,7 +89,13 @@ class AppConfig:
             if self.base_url.endswith(suffix):
                 self.base_url = self.base_url[: -len(suffix)].rstrip("/")
 
-    def save(self, base_url: str, api_key: str, card_count: int = DEFAULT_CARD_COUNT):
+    def save(
+        self,
+        base_url: str,
+        api_key: str,
+        card_count: int = DEFAULT_CARD_COUNT,
+        language: Optional[str] = None,
+    ):
         base_url = base_url.strip().rstrip("/")
         for suffix in ["/mcp", "/api/v2", "/api"]:
             if base_url.endswith(suffix):
@@ -94,11 +103,14 @@ class AppConfig:
         self.base_url = base_url or DEFAULT_BASE_URL
         self.api_key = api_key.strip()
         self.card_count = max(1, min(25, int(card_count)))
+        if language in ("auto", "de", "en"):
+            self.language = language
 
         payload = {
             "baseUrl": self.base_url,
             "apiKey": self.api_key,
             "cardCount": self.card_count,
+            "language": self.language,
         }
         LOCAL_CONFIG_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -620,6 +632,7 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                         "hasApiKey": bool(CONFIG.api_key),
                         "maskedKey": CONFIG.masked_key(),
                         "cardCount": CONFIG.card_count,
+                        "language": CONFIG.language,
                         "platform": platform.system(),
                         "version": APP_VERSION,
                     },
@@ -722,6 +735,10 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
             if path == "/app.js":
                 self._serve_static(STATIC_DIR / "app.js", "application/javascript; charset=utf-8")
                 return
+            if path.startswith("/i18n/") and path.endswith(".json"):
+                lang_file = Path(path).name
+                self._serve_static(STATIC_DIR / "i18n" / lang_file, "application/json; charset=utf-8")
+                return
 
             self._send_json(HTTPStatus.NOT_FOUND, {"error": f"Not found: {path}"})
 
@@ -746,8 +763,12 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                 if api_key is None or api_key == "":
                     api_key = CONFIG.api_key
                 card_count = int(body.get("cardCount") or CONFIG.card_count)
-                CONFIG.save(base_url=base_url, api_key=api_key, card_count=card_count)
-                data = fetch_top_thoughts(limit=CONFIG.card_count)
+                language = body.get("language") or CONFIG.language
+                CONFIG.save(base_url=base_url, api_key=api_key, card_count=card_count, language=language)
+                total_count = 0
+                if not body.get("languageOnly"):
+                    data = fetch_top_thoughts(limit=CONFIG.card_count)
+                    total_count = data["totalCount"]
                 self._send_json(
                     HTTPStatus.OK,
                     {
@@ -755,7 +776,8 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                         "baseUrl": CONFIG.base_url,
                         "maskedKey": CONFIG.masked_key(),
                         "cardCount": CONFIG.card_count,
-                        "totalCount": data["totalCount"],
+                        "language": CONFIG.language,
+                        "totalCount": total_count,
                     },
                 )
                 return

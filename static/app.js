@@ -10,6 +10,13 @@ const state = {
   instantDelete: false,
   confirmingDeleteId: null,
   lightboxImage: null,
+  // Config & i18n
+  version: "1.2.0",
+  hasApiKey: false,
+  maskedKey: "",
+  languagePref: "auto", // "auto" | "de" | "en"
+  activeLang: "en", // "de" | "en"
+  i18n: {},
   // Editor state (Create or Edit)
   editingThoughtId: null, // null = create mode, string = edit mode
   existingFiles: [], // [{id, name, proxyUrl, byteLength}]
@@ -21,10 +28,15 @@ const els = {
   versionBadge: document.getElementById("versionBadge"),
   statusSubtitle: document.getElementById("statusSubtitle"),
   newThoughtBtn: document.getElementById("newThoughtBtn"),
+  autoSyncLabel: document.getElementById("autoSyncLabel"),
   autoSyncToggle: document.getElementById("autoSyncToggle"),
+  autoSyncText: document.getElementById("autoSyncText"),
   syncDot: document.getElementById("syncDot"),
+  instantDeleteLabel: document.getElementById("instantDeleteLabel"),
   instantDeleteToggle: document.getElementById("instantDeleteToggle"),
+  instantDeleteText: document.getElementById("instantDeleteText"),
   refreshBtn: document.getElementById("refreshBtn"),
+  langSelect: document.getElementById("langSelect"),
   settingsBtn: document.getElementById("settingsBtn"),
   errorBanner: document.getElementById("errorBanner"),
   cardsGrid: document.getElementById("cardsGrid"),
@@ -34,21 +46,36 @@ const els = {
   closeEditorBtn: document.getElementById("closeEditorBtn"),
   cancelEditorBtn: document.getElementById("cancelEditorBtn"),
   editorForm: document.getElementById("editorForm"),
+  editorNoteLabel: document.getElementById("editorNoteLabel"),
+  editorNoteHint: document.getElementById("editorNoteHint"),
   editorMarkdown: document.getElementById("editorMarkdown"),
+  editorLinksLabel: document.getElementById("editorLinksLabel"),
   editorLinks: document.getElementById("editorLinks"),
   pasteClipboardImgBtn: document.getElementById("pasteClipboardImgBtn"),
+  chooseFileText: document.getElementById("chooseFileText"),
   editorFileInput: document.getElementById("editorFileInput"),
+  pasteInlineLabelWrap: document.getElementById("pasteInlineLabelWrap"),
   pasteInlineToggle: document.getElementById("pasteInlineToggle"),
+  pasteInlineText: document.getElementById("pasteInlineText"),
   editorAttachmentsWrap: document.getElementById("editorAttachmentsWrap"),
   saveEditorBtn: document.getElementById("saveEditorBtn"),
   // Settings modal
   settingsModal: document.getElementById("settingsModal"),
+  settingsTitle: document.getElementById("settingsTitle"),
   closeSettingsBtn: document.getElementById("closeSettingsBtn"),
   cancelSettingsBtn: document.getElementById("cancelSettingsBtn"),
+  saveSettingsBtn: document.getElementById("saveSettingsBtn"),
   settingsForm: document.getElementById("settingsForm"),
+  settingsUrlLabel: document.getElementById("settingsUrlLabel"),
+  settingsUrlHint: document.getElementById("settingsUrlHint"),
   baseUrlInput: document.getElementById("baseUrlInput"),
+  settingsKeyLabel: document.getElementById("settingsKeyLabel"),
   apiKeyInput: document.getElementById("apiKeyInput"),
+  settingsCountLabel: document.getElementById("settingsCountLabel"),
   cardCountInput: document.getElementById("cardCountInput"),
+  settingsLangLabel: document.getElementById("settingsLangLabel"),
+  settingsLangSelect: document.getElementById("settingsLangSelect"),
+  settingsLangAutoOpt: document.getElementById("settingsLangAutoOpt"),
   currentKeyHint: document.getElementById("currentKeyHint"),
   // Lightbox
   lightboxModal: document.getElementById("lightboxModal"),
@@ -61,6 +88,124 @@ const els = {
 
 let toastTimer = null;
 let pollIntervalId = null;
+
+/* --- i18n Engine --- */
+
+function detectSystemLanguage() {
+  const navLangs = navigator.languages?.length ? navigator.languages : [navigator.language || "en"];
+  for (const raw of navLangs) {
+    const code = String(raw || "").toLowerCase().slice(0, 2);
+    if (code === "de") return "de";
+    if (code === "en") return "en";
+  }
+  return "en";
+}
+
+function resolveLanguage(pref) {
+  if (pref === "de" || pref === "en") return pref;
+  return detectSystemLanguage();
+}
+
+function t(keyPath, vars = {}) {
+  const parts = keyPath.split(".");
+  let val = state.i18n;
+  for (const p of parts) {
+    val = val?.[p];
+  }
+  if (typeof val !== "string") return keyPath;
+  return val.replace(/\{(\w+)\}/g, (_, k) => (vars[k] !== undefined ? vars[k] : `{${k}}`));
+}
+
+async function loadTranslations(langPref) {
+  state.languagePref = langPref || "auto";
+  const resolved = resolveLanguage(state.languagePref);
+  state.activeLang = resolved;
+
+  try {
+    const resp = await fetch(`/i18n/${resolved}.json`);
+    if (resp.ok) {
+      state.i18n = await resp.json();
+    }
+  } catch (err) {
+    console.warn("Could not load i18n JSON:", err);
+  }
+
+  document.documentElement.lang = state.activeLang;
+  if (els.langSelect) {
+    els.langSelect.value = state.activeLang;
+  }
+  if (els.settingsLangSelect) {
+    els.settingsLangSelect.value = state.languagePref;
+  }
+  applyStaticTranslations();
+}
+
+function applyStaticTranslations() {
+  // Topbar
+  els.newThoughtBtn.textContent = t("topbar.newBtn");
+  els.newThoughtBtn.title = t("topbar.newBtnTitle");
+  els.autoSyncText.textContent = t("topbar.liveSync");
+  els.autoSyncLabel.title = t("topbar.liveSyncTitle");
+  els.instantDeleteText.textContent = t("topbar.instantDelete");
+  els.instantDeleteLabel.title = t("topbar.instantDeleteTitle");
+  els.refreshBtn.textContent = t("topbar.refreshBtn");
+  els.refreshBtn.title = t("topbar.refreshBtnTitle");
+  els.settingsBtn.textContent = t("topbar.settingsBtn");
+  els.settingsBtn.title = t("topbar.settingsBtnTitle");
+  if (els.langSelect) {
+    els.langSelect.title = t("topbar.languageTitle");
+  }
+
+  // Editor modal
+  els.editorModalTitle.textContent = state.editingThoughtId
+    ? t("editor.titleEdit")
+    : t("editor.titleCreate");
+  els.closeEditorBtn.setAttribute("aria-label", t("editor.closeAria"));
+  els.editorNoteLabel.textContent = t("editor.noteLabel");
+  els.editorNoteHint.innerHTML = t("editor.noteHintHtml");
+  els.editorMarkdown.placeholder = t("editor.notePlaceholder");
+  els.editorLinksLabel.innerHTML = t("editor.linksLabelHtml");
+  els.editorLinks.placeholder = t("editor.linksPlaceholder");
+  els.pasteClipboardImgBtn.textContent = t("editor.pasteClipboardBtn");
+  els.chooseFileText.textContent = t("editor.chooseFileBtn");
+  els.pasteInlineText.textContent = t("editor.pasteInlineLabel");
+  els.pasteInlineLabelWrap.title = t("editor.pasteInlineTitle");
+  els.cancelEditorBtn.textContent = t("editor.cancelBtn");
+  els.saveEditorBtn.textContent = t("editor.saveBtn");
+
+  // Settings modal
+  els.settingsTitle.textContent = t("settings.title");
+  els.closeSettingsBtn.setAttribute("aria-label", t("editor.closeAria"));
+  els.settingsUrlLabel.textContent = t("settings.serverUrlLabel");
+  els.settingsUrlHint.innerHTML = t("settings.serverUrlHintHtml");
+  els.settingsKeyLabel.textContent = t("settings.apiKeyLabel");
+  els.apiKeyInput.placeholder = t("settings.apiKeyPlaceholder");
+  els.settingsCountLabel.textContent = t("settings.cardCountLabel");
+  els.settingsLangLabel.textContent = t("settings.languageLabel");
+  els.settingsLangAutoOpt.textContent = t("settings.languageAuto");
+  els.cancelSettingsBtn.textContent = t("settings.cancelBtn");
+  els.saveSettingsBtn.textContent = t("settings.saveBtn");
+  updateKeyHintText();
+
+  // Lightbox
+  els.lightboxCopyBtn.textContent = t("lightbox.copyBtn");
+  els.closeLightboxBtn.textContent = t("lightbox.closeBtn");
+
+  if (state.cards.length > 0 || state.totalCount > 0) {
+    updateSubtitle();
+    renderCards();
+  }
+}
+
+function updateKeyHintText() {
+  if (state.hasApiKey) {
+    els.currentKeyHint.innerHTML = t("settings.activeKeyHintHtml", {
+      maskedKey: escapeHtml(state.maskedKey),
+    });
+  } else {
+    els.currentKeyHint.innerHTML = t("settings.noKeyHintHtml");
+  }
+}
 
 function showToast(msg, isError = false) {
   els.toast.textContent = msg;
@@ -89,12 +234,16 @@ function formatDate(isoStr) {
   const now = new Date();
   const diffSec = Math.round((now - d) / 1000);
   let rel = "";
-  if (diffSec >= 0 && diffSec < 60) rel = "gerade eben";
-  else if (diffSec >= 60 && diffSec < 3600) rel = `vor ${Math.floor(diffSec / 60)} Min.`;
-  else if (diffSec >= 3600 && diffSec < 86400) rel = `vor ${Math.floor(diffSec / 3600)} Std.`;
-  else if (diffSec >= 86400 && diffSec < 86400 * 7) rel = `vor ${Math.floor(diffSec / 86400)} Tg.`;
+  if (diffSec >= 0 && diffSec < 60) rel = t("time.justNow");
+  else if (diffSec >= 60 && diffSec < 3600)
+    rel = t("time.minutesAgo", { n: Math.floor(diffSec / 60) });
+  else if (diffSec >= 3600 && diffSec < 86400)
+    rel = t("time.hoursAgo", { n: Math.floor(diffSec / 3600) });
+  else if (diffSec >= 86400 && diffSec < 86400 * 7)
+    rel = t("time.daysAgo", { n: Math.floor(diffSec / 86400) });
 
-  const abs = d.toLocaleString("de-DE", {
+  const locale = state.i18n?.meta?.dateLocale || (state.activeLang === "de" ? "de-DE" : "en-US");
+  const abs = d.toLocaleString(locale, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -138,7 +287,7 @@ function getCopyableText(card) {
 async function copyTextAction(card, buttonEl) {
   const text = getCopyableText(card);
   if (!text) {
-    showToast("Kein Text zum Kopieren vorhanden.", true);
+    showToast(t("toasts.noTextToCopy"), true);
     return;
   }
 
@@ -154,19 +303,19 @@ async function copyTextAction(card, buttonEl) {
     }
     if (buttonEl) {
       buttonEl.classList.add("btn-success");
-      buttonEl.innerHTML = "✓ Text kopiert";
+      buttonEl.innerHTML = t("toasts.textCopiedBtn");
       setTimeout(() => {
         buttonEl.classList.remove("btn-success");
         buttonEl.innerHTML = origLabel;
       }, 1500);
     }
-    showToast("Text in die Zwischenablage kopiert!");
+    showToast(t("toasts.textCopied"));
   } catch (err) {
     try {
       await navigator.clipboard.writeText(text);
-      showToast("Text in die Zwischenablage kopiert!");
+      showToast(t("toasts.textCopied"));
     } catch (_) {
-      showToast(`Kopieren fehlgeschlagen: ${err.message}`, true);
+      showToast(t("toasts.copyFailed", { error: err.message }), true);
     }
   }
 }
@@ -176,7 +325,7 @@ async function copyImageAction(thoughtId, imgItem, buttonEl) {
   const origLabel = buttonEl ? buttonEl.innerHTML : "";
   if (buttonEl) {
     buttonEl.disabled = true;
-    buttonEl.innerHTML = "⏳ Kopiere…";
+    buttonEl.innerHTML = t("toasts.copyingBtn");
   }
 
   try {
@@ -200,19 +349,19 @@ async function copyImageAction(thoughtId, imgItem, buttonEl) {
     if (buttonEl) {
       buttonEl.disabled = false;
       buttonEl.classList.add("btn-success");
-      buttonEl.innerHTML = "✓ Grafik kopiert";
+      buttonEl.innerHTML = t("toasts.imageCopiedBtn");
       setTimeout(() => {
         buttonEl.classList.remove("btn-success");
         buttonEl.innerHTML = origLabel;
       }, 1600);
     }
-    showToast(`Grafik "${imgItem.name || "Bild"}" in die Zwischenablage kopiert!`);
+    showToast(t("toasts.imageCopied", { name: imgItem.name || t("cards.imageDefaultName") }));
   } catch (err) {
     if (buttonEl) {
       buttonEl.disabled = false;
       buttonEl.innerHTML = origLabel;
     }
-    showToast(`Grafik-Kopieren fehlgeschlagen: ${err.message}`, true);
+    showToast(t("toasts.imageCopyFailed", { error: err.message }), true);
   }
 }
 
@@ -254,12 +403,12 @@ async function deleteThoughtAction(thoughtId) {
 
     renderCards();
     updateSubtitle();
-    showToast("Quick Thought gelöscht & nächster geladen.");
+    showToast(t("toasts.thoughtDeletedAndLoaded"));
   } catch (err) {
     if (cardEl) {
       cardEl.classList.remove("removing");
     }
-    showToast(`Löschen fehlgeschlagen: ${err.message}`, true);
+    showToast(t("toasts.deleteFailed", { error: err.message }), true);
   }
 }
 
@@ -302,7 +451,7 @@ function openCreateModal() {
   state.deletedFileIds = [];
   state.stagedAttachments = [];
 
-  els.editorModalTitle.textContent = "Neuer Quick Thought";
+  els.editorModalTitle.textContent = t("editor.titleCreate");
   els.editorMarkdown.value = "";
   els.editorLinks.value = "";
   renderEditorAttachments();
@@ -316,7 +465,7 @@ function openEditModal(card) {
   state.deletedFileIds = [];
   state.stagedAttachments = [];
 
-  els.editorModalTitle.textContent = "Quick Thought bearbeiten";
+  els.editorModalTitle.textContent = t("editor.titleEdit");
   els.editorMarkdown.value = card.markdown || "";
   els.editorLinks.value = formatLinksForTextarea(card.links || []);
   renderEditorAttachments();
@@ -352,7 +501,7 @@ function renderEditorAttachments() {
       ${isImg ? `<img src="${escapeAttr(f.proxyUrl)}" alt="${escapeAttr(f.name)}" />` : ""}
       <div class="editor-att-meta">
         <span class="editor-att-name" title="${escapeAttr(f.name)}">${escapeHtml(f.name)}</span>
-        <button type="button" class="editor-att-remove" title="Anhang entfernen">✕</button>
+        <button type="button" class="editor-att-remove" title="${escapeAttr(t("editor.removeAttachmentTitle"))}">✕</button>
       </div>
     `;
     item.querySelector(".editor-att-remove").addEventListener("click", () => {
@@ -370,7 +519,7 @@ function renderEditorAttachments() {
       ${isImg ? `<img src="${escapeAttr(att.dataUrl)}" alt="${escapeAttr(att.name)}" />` : ""}
       <div class="editor-att-meta">
         <span class="editor-att-name" title="${escapeAttr(att.name)}">🆕 ${escapeHtml(att.name)}</span>
-        <button type="button" class="editor-att-remove" title="Wieder entfernen">✕</button>
+        <button type="button" class="editor-att-remove" title="${escapeAttr(t("editor.removeStagedTitle"))}">✕</button>
       </div>
     `;
     item.querySelector(".editor-att-remove").addEventListener("click", () => {
@@ -385,11 +534,11 @@ function addImageToEditor({ name, contentType, dataUrl, byteLength }) {
   if (els.pasteInlineToggle.checked) {
     // Insert as inline markdown data URI at cursor position
     const ta = els.editorMarkdown;
-    const mdImg = `\n![${name || "Grafik"}](${dataUrl})\n`;
+    const mdImg = `\n![${name || t("cards.imageDefaultName")}](${dataUrl})\n`;
     const start = ta.selectionStart ?? ta.value.length;
     const end = ta.selectionEnd ?? ta.value.length;
     ta.value = ta.value.slice(0, start) + mdImg + ta.value.slice(end);
-    showToast("Grafik als Inline-Markdown eingefügt!");
+    showToast(t("toasts.inlineImageInserted"));
   } else {
     state.stagedAttachments.push({
       name: name || `Clipboard-${Date.now()}.png`,
@@ -398,19 +547,19 @@ function addImageToEditor({ name, contentType, dataUrl, byteLength }) {
       byteLength: byteLength || 0,
     });
     renderEditorAttachments();
-    showToast(`Grafik "${name}" als Anhang hinzugefügt!`);
+    showToast(t("toasts.attachmentAdded", { name }));
   }
 }
 
 async function fetchImageFromOsClipboard() {
   els.pasteClipboardImgBtn.disabled = true;
   const orig = els.pasteClipboardImgBtn.innerHTML;
-  els.pasteClipboardImgBtn.innerHTML = "⏳ Lese Clipboard…";
+  els.pasteClipboardImgBtn.innerHTML = t("editor.readingClipboardBtn");
   try {
     const resp = await fetch("/api/clipboard/image");
     const data = await resp.json();
     if (!resp.ok) {
-      throw new Error(data.error || "Keine Grafik im Clipboard");
+      throw new Error(data.error || t("toasts.noImageInClipboard"));
     }
     addImageToEditor({
       name: data.name,
@@ -448,7 +597,7 @@ async function saveEditorSubmit(e) {
 
   els.saveEditorBtn.disabled = true;
   const origText = els.saveEditorBtn.textContent;
-  els.saveEditorBtn.textContent = "⏳ Speichere…";
+  els.saveEditorBtn.textContent = t("editor.savingBtn");
 
   try {
     if (state.editingThoughtId) {
@@ -467,11 +616,11 @@ async function saveEditorSubmit(e) {
         throw new Error(data.error || `HTTP ${resp.status}`);
       }
       closeEditorModal();
-      showToast("Quick Thought aktualisiert!");
+      showToast(t("toasts.thoughtUpdated"));
       await loadThoughts(false);
     } else {
       if (!markdown.trim() && links.length === 0 && state.stagedAttachments.length === 0) {
-        throw new Error("Bitte Text, Link oder Grafik eingeben.");
+        throw new Error(t("toasts.emptyThoughtError"));
       }
       const resp = await fetch("/api/thoughts", {
         method: "POST",
@@ -487,11 +636,11 @@ async function saveEditorSubmit(e) {
         throw new Error(data.error || `HTTP ${resp.status}`);
       }
       closeEditorModal();
-      showToast("Neuer Quick Thought angelegt!");
+      showToast(t("toasts.thoughtCreated"));
       await loadThoughts(false);
     }
   } catch (err) {
-    showToast(`Fehler beim Speichern: ${err.message}`, true);
+    showToast(t("toasts.saveError", { error: err.message }), true);
   } finally {
     els.saveEditorBtn.disabled = false;
     els.saveEditorBtn.textContent = origText;
@@ -502,7 +651,7 @@ async function saveEditorSubmit(e) {
 
 function openLightbox(thoughtId, imgItem) {
   state.lightboxImage = { thoughtId, imgItem };
-  els.lightboxTitle.textContent = imgItem.name || imgItem.fileName || "Grafik";
+  els.lightboxTitle.textContent = imgItem.name || imgItem.fileName || t("cards.imageDefaultName");
   els.lightboxImg.src = imgItem.proxyUrl;
   els.lightboxModal.classList.remove("hidden");
 }
@@ -514,7 +663,10 @@ function closeLightbox() {
 }
 
 function updateSubtitle() {
-  els.statusSubtitle.textContent = `${state.cards.length} von ${state.totalCount} Quick Thoughts angezeigt (neueste zuerst)`;
+  els.statusSubtitle.textContent = t("topbar.subtitleCount", {
+    shown: state.cards.length,
+    total: state.totalCount,
+  });
 }
 
 function renderCards() {
@@ -523,7 +675,7 @@ function renderCards() {
   if (!state.cards.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = "Keine Quick Thoughts in der Inbox vorhanden.";
+    empty.textContent = t("cards.emptyState");
     els.cardsGrid.appendChild(empty);
     return;
   }
@@ -539,7 +691,7 @@ function renderCards() {
     const otherFiles = card.otherFiles || [];
     const displayTitle =
       card.title ||
-      (cleanNote ? cleanNote.slice(0, 55) : allImages[0]?.name || "Ohne Titel");
+      (cleanNote ? cleanNote.slice(0, 55) : allImages[0]?.name || t("cards.untitled"));
 
     // Header
     const headerEl = document.createElement("div");
@@ -590,7 +742,7 @@ function renderCards() {
     } else if (allImages.length === 0 && links.length === 0) {
       const emptyNote = document.createElement("div");
       emptyNote.className = "note-empty";
-      emptyNote.textContent = "(Kein Notiztext)";
+      emptyNote.textContent = t("cards.noNoteText");
       bodyEl.appendChild(emptyNote);
     }
 
@@ -604,20 +756,20 @@ function renderCards() {
         imgCard.className = "image-card";
 
         const isInline = imgItem.origin === "inline";
-        const badgeText = isInline ? "Im Text" : "Anhang";
+        const badgeText = isInline ? t("cards.badgeInline") : t("cards.badgeAttachment");
         const sizeInfo = imgItem.byteLength ? ` · ${formatBytes(imgItem.byteLength)}` : "";
 
         const imgHeader = document.createElement("div");
         imgHeader.className = "image-card-header";
         imgHeader.innerHTML = `
-          <span class="image-badge ${isInline ? "inline" : ""}">${badgeText}</span>
-          <span class="image-name" title="${escapeAttr(imgItem.name || "")}">${escapeHtml(imgItem.name || "Grafik")}${escapeHtml(sizeInfo)}</span>
+          <span class="image-badge ${isInline ? "inline" : ""}">${escapeHtml(badgeText)}</span>
+          <span class="image-name" title="${escapeAttr(imgItem.name || "")}">${escapeHtml(imgItem.name || t("cards.imageDefaultName"))}${escapeHtml(sizeInfo)}</span>
         `;
 
         const copyImgMiniBtn = document.createElement("button");
         copyImgMiniBtn.type = "button";
         copyImgMiniBtn.className = "btn btn-secondary btn-sm";
-        copyImgMiniBtn.innerHTML = "📋 Grafik kopieren";
+        copyImgMiniBtn.innerHTML = t("cards.copyImageBtn");
         copyImgMiniBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           copyImageAction(card.id, imgItem, copyImgMiniBtn);
@@ -626,10 +778,10 @@ function renderCards() {
 
         const previewWrap = document.createElement("div");
         previewWrap.className = "image-preview-wrap";
-        previewWrap.title = "Klicken zum Vergrößern";
+        previewWrap.title = t("cards.clickToEnlarge");
         const imgEl = document.createElement("img");
         imgEl.src = imgItem.proxyUrl;
-        imgEl.alt = imgItem.name || "Quick Thought Grafik";
+        imgEl.alt = imgItem.name || t("cards.imageDefaultName");
         imgEl.loading = "lazy";
         previewWrap.appendChild(imgEl);
         previewWrap.addEventListener("click", () => openLightbox(card.id, imgItem));
@@ -671,8 +823,8 @@ function renderCards() {
     const copyTextBtn = document.createElement("button");
     copyTextBtn.type = "button";
     copyTextBtn.className = "btn btn-secondary btn-sm";
-    copyTextBtn.innerHTML = "📋 Text";
-    copyTextBtn.title = "Notiztext in die Zwischenablage kopieren";
+    copyTextBtn.innerHTML = t("cards.copyTextBtn");
+    copyTextBtn.title = t("cards.copyTextTitle");
     copyTextBtn.addEventListener("click", () => copyTextAction(card, copyTextBtn));
     leftActions.appendChild(copyTextBtn);
 
@@ -682,8 +834,10 @@ function renderCards() {
       copyImgFooterBtn.type = "button";
       copyImgFooterBtn.className = "btn btn-secondary btn-sm";
       copyImgFooterBtn.innerHTML =
-        allImages.length === 1 ? "🖼️ Grafik" : `🖼️ Grafik (${allImages.length})`;
-      copyImgFooterBtn.title = "Grafik als Bild in die Zwischenablage kopieren";
+        allImages.length === 1
+          ? t("cards.copyImageFooterSingle")
+          : t("cards.copyImageFooterMulti", { count: allImages.length });
+      copyImgFooterBtn.title = t("cards.copyImageFooterTitle");
       copyImgFooterBtn.addEventListener("click", () =>
         copyImageAction(card.id, allImages[0], copyImgFooterBtn)
       );
@@ -694,8 +848,8 @@ function renderCards() {
     const editBtn = document.createElement("button");
     editBtn.type = "button";
     editBtn.className = "btn btn-secondary btn-sm";
-    editBtn.innerHTML = "✏️ Edit";
-    editBtn.title = "Quick Thought bearbeiten oder Grafik anhängen";
+    editBtn.innerHTML = t("cards.editBtn");
+    editBtn.title = t("cards.editBtnTitle");
     editBtn.addEventListener("click", () => openEditModal(card));
     leftActions.appendChild(editBtn);
 
@@ -708,18 +862,18 @@ function renderCards() {
 
       const lbl = document.createElement("span");
       lbl.className = "confirm-label";
-      lbl.textContent = "Löschen?";
+      lbl.textContent = t("cards.deleteConfirmQuestion");
 
       const yesBtn = document.createElement("button");
       yesBtn.type = "button";
       yesBtn.className = "btn btn-danger btn-sm";
-      yesBtn.textContent = "Ja";
+      yesBtn.textContent = t("cards.deleteConfirmYes");
       yesBtn.addEventListener("click", () => deleteThoughtAction(card.id));
 
       const noBtn = document.createElement("button");
       noBtn.type = "button";
       noBtn.className = "btn btn-ghost btn-sm";
-      noBtn.textContent = "Nein";
+      noBtn.textContent = t("cards.deleteConfirmNo");
       noBtn.addEventListener("click", () => {
         state.confirmingDeleteId = null;
         renderCards();
@@ -733,7 +887,7 @@ function renderCards() {
       const delBtn = document.createElement("button");
       delBtn.type = "button";
       delBtn.className = "btn btn-danger btn-sm";
-      delBtn.innerHTML = "🗑️ Löschen";
+      delBtn.innerHTML = t("cards.deleteBtn");
       delBtn.addEventListener("click", () => {
         if (state.instantDelete) {
           deleteThoughtAction(card.id);
@@ -770,23 +924,42 @@ async function loadConfig() {
   if (!resp.ok) return;
   const cfg = await resp.json();
   if (cfg.version && els.versionBadge) {
+    state.version = cfg.version;
     els.versionBadge.textContent = `v${cfg.version}`;
     document.title = `FiveQThoughts v${cfg.version} – TheBrain Quick Thoughts`;
   }
   state.cardCount = cfg.cardCount || 5;
+  state.hasApiKey = Boolean(cfg.hasApiKey);
+  state.maskedKey = cfg.maskedKey || "";
   els.baseUrlInput.value = cfg.baseUrl || "http://localhost:11524";
   els.cardCountInput.value = state.cardCount;
-  if (cfg.hasApiKey) {
-    els.currentKeyHint.innerHTML = `Aktiver Key: <code>${escapeHtml(cfg.maskedKey)}</code> (aus <em>Settings &gt; User &gt; Local API</em>)`;
-  } else {
-    els.currentKeyHint.innerHTML = `Noch kein Key gespeichert. Zu finden in TheBrain 15 unter <strong>Settings &gt; User &gt; Local API</strong>.`;
+
+  const savedLang = localStorage.getItem("fiveq_lang");
+  const pref = cfg.language && cfg.language !== "auto" ? cfg.language : savedLang || "auto";
+  await loadTranslations(pref);
+}
+
+async function switchLanguage(newLangPref) {
+  localStorage.setItem("fiveq_lang", newLangPref);
+  await loadTranslations(newLangPref);
+  try {
+    await fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        language: newLangPref,
+        languageOnly: true,
+      }),
+    });
+  } catch (_) {
+    // Non-fatal if backend save fails
   }
 }
 
 async function loadThoughts(showLoadingStatus = true) {
   els.refreshBtn.disabled = true;
   if (showLoadingStatus) {
-    els.statusSubtitle.textContent = "Lade Quick Thoughts über TheBrain API…";
+    els.statusSubtitle.textContent = t("topbar.loading");
   }
   showError("");
 
@@ -807,7 +980,7 @@ async function loadThoughts(showLoadingStatus = true) {
     updateSubtitle();
   } catch (err) {
     showError(err.message);
-    els.statusSubtitle.textContent = "Verbindungsfehler";
+    els.statusSubtitle.textContent = t("topbar.connectionError");
     if (String(err.message).includes("API Key") || String(err.message).includes("401")) {
       els.settingsModal.classList.remove("hidden");
     }
@@ -833,7 +1006,7 @@ async function pollForUpdates() {
     const data = await resp.json();
     if (state.signature && data.signature && data.signature !== state.signature) {
       await loadThoughts(false);
-      showToast("⚡ Quick Thoughts automatisch aktualisiert");
+      showToast(t("toasts.autoSynced"));
     }
   } catch (_) {
     // Silent background poll error
@@ -890,6 +1063,12 @@ els.instantDeleteToggle.addEventListener("change", () => {
 
 els.refreshBtn.addEventListener("click", () => loadThoughts(true));
 
+if (els.langSelect) {
+  els.langSelect.addEventListener("change", (e) => {
+    switchLanguage(e.target.value);
+  });
+}
+
 els.settingsBtn.addEventListener("click", async () => {
   await loadConfig();
   els.apiKeyInput.value = "";
@@ -901,10 +1080,12 @@ els.cancelSettingsBtn.addEventListener("click", () => els.settingsModal.classLis
 
 els.settingsForm.addEventListener("submit", async (e) => {
   e.preventDefault();
+  const selectedLang = els.settingsLangSelect ? els.settingsLangSelect.value : state.languagePref;
   const payload = {
     baseUrl: els.baseUrlInput.value.trim(),
     apiKey: els.apiKeyInput.value.trim(),
     cardCount: parseInt(els.cardCountInput.value, 10) || 5,
+    language: selectedLang,
   };
   try {
     const resp = await fetch("/api/config", {
@@ -917,11 +1098,13 @@ els.settingsForm.addEventListener("submit", async (e) => {
       throw new Error(data.error || `HTTP ${resp.status}`);
     }
     state.cardCount = data.cardCount || 5;
+    localStorage.setItem("fiveq_lang", selectedLang);
+    await loadTranslations(selectedLang);
     els.settingsModal.classList.add("hidden");
-    showToast("API-Einstellungen gespeichert!");
+    showToast(t("toasts.settingsSaved"));
     await loadThoughts(true);
   } catch (err) {
-    showToast(`Fehler: ${err.message}`, true);
+    showToast(t("toasts.genericError", { error: err.message }), true);
   }
 });
 
