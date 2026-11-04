@@ -1,0 +1,5 @@
+{
+  "baseUrl": "http://localhost:11524",
+  "apiKey": "YOUR_THEBRAIN_LOCAL_API_KEY",
+  "cardCount": 5
+}

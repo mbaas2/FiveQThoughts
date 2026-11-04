@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FiveQThoughts – TheBrain Quick Thoughts</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="bolt-icon" aria-hidden="true">⚡</span>
+      <div>
+        <h1>FiveQThoughts</h1>
+        <span id="statusSubtitle" class="subtitle">Verbinde mit TheBrain API…</span>
+      </div>
+    </div>
+
+    <div class="topbar-actions">
+      <label class="toggle-label" title="Wenn aktiviert, werden Quick Thoughts beim Klick auf 'Löschen' sofort ohne Sicherheitsabfrage gelöscht.">
+        <input type="checkbox" id="instantDeleteToggle" />
+        <span>Sofort löschen</span>
+      </label>
+
+      <button id="refreshBtn" class="btn btn-secondary" title="Neu laden (Taste R)">
+        ↻ Aktualisieren
+      </button>
+
+      <button id="settingsBtn" class="btn btn-ghost" title="API-URL & Bearer Token konfigurieren">
+        ⚙ API
+      </button>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="errorBanner" class="error-banner hidden"></div>
+
+    <div id="cardsGrid" class="cards-grid" aria-live="polite">
+      <!-- 5 Quick Thought cards rendered here -->
+    </div>
+  </main>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="settingsTitle">TheBrain API-Einstellungen</h2>
+        <button id="closeSettingsBtn" class="btn-icon" aria-label="Schließen">✕</button>
+      </div>
+      <form id="settingsForm" class="modal-body">
+        <div class="field">
+          <label for="baseUrlInput">TheBrain Server URL</label>
+          <input type="url" id="baseUrlInput" placeholder="http://localhost:11524" required />
+          <small>Standard lokal: <code>http://localhost:11524</code> (Endpunkt <code>/api/v2/quick-thoughts</code>)</small>
+        </div>
+
+        <div class="field">
+          <label for="apiKeyInput">Local API Key (Bearer Token)</label>
+          <input type="password" id="apiKeyInput" placeholder="Neuen Key eingeben (leer lassen zum Beibehalten)" autocomplete="off" />
+          <small id="currentKeyHint">Zu finden in TheBrain 15 unter <strong>Settings &gt; User &gt; Local API</strong>.</small>
+        </div>
+
+        <div class="field">
+          <label for="cardCountInput">Anzahl angezeigter Karten</label>
+          <input type="number" id="cardCountInput" min="1" max="20" value="5" required />
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="cancelSettingsBtn" class="btn btn-ghost">Abbrechen</button>
+          <button type="submit" class="btn btn-primary">Speichern &amp; Verbinden</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Image Lightbox Modal -->
+  <div id="lightboxModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="lightbox-content">
+      <div class="lightbox-bar">
+        <span id="lightboxTitle" class="lightbox-title"></span>
+        <div class="lightbox-actions">
+          <button id="lightboxCopyBtn" class="btn btn-primary btn-sm">📋 Grafik kopieren</button>
+          <button id="closeLightboxBtn" class="btn btn-secondary btn-sm">✕ Schließen</button>
+        </div>
+      </div>
+      <div class="lightbox-img-wrap">
+        <img id="lightboxImg" src="" alt="" />
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

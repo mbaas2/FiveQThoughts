@@ -1,0 +1,15 @@
+# Local configuration containing API keys
+config.local.json
+config.json
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# OS files
+.DS_Store
+Thumbs.db
