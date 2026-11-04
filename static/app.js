@@ -18,6 +18,7 @@ const state = {
 };
 
 const els = {
+  versionBadge: document.getElementById("versionBadge"),
   statusSubtitle: document.getElementById("statusSubtitle"),
   newThoughtBtn: document.getElementById("newThoughtBtn"),
   autoSyncToggle: document.getElementById("autoSyncToggle"),
@@ -768,6 +769,10 @@ async function loadConfig() {
   const resp = await fetch("/api/config");
   if (!resp.ok) return;
   const cfg = await resp.json();
+  if (cfg.version && els.versionBadge) {
+    els.versionBadge.textContent = `v${cfg.version}`;
+    document.title = `FiveQThoughts v${cfg.version} – TheBrain Quick Thoughts`;
+  }
   state.cardCount = cfg.cardCount || 5;
   els.baseUrlInput.value = cfg.baseUrl || "http://localhost:11524";
   els.cardCountInput.value = state.cardCount;

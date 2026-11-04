@@ -3,8 +3,9 @@ config.local.json
 config.json
 .env
 
-# Compiled native macOS app bundle (built automatically from native/macos_host.swift)
+# Compiled native app binaries (built automatically from native/macos_host.swift & native/windows_host.cs)
 FiveQThoughts.app/
+FiveQThoughts.exe
 
 # Python
 __pycache__/

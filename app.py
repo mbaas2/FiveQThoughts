@@ -31,12 +31,27 @@ from typing import Optional
 
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
+VERSION_FILE = APP_DIR / "VERSION"
 LOCAL_CONFIG_PATH = APP_DIR / "config.local.json"
 DEFAULT_CONFIG_PATH = APP_DIR / "config.json"
 USER_CONFIG_PATH = Path.home() / ".fiveqthoughts.json"
 
 DEFAULT_BASE_URL = "http://localhost:11524"
 DEFAULT_CARD_COUNT = 5
+
+
+def get_app_version() -> str:
+    try:
+        if VERSION_FILE.is_file():
+            v = VERSION_FILE.read_text(encoding="utf-8").strip()
+            if v:
+                return v
+    except Exception:
+        pass
+    return "1.2.0"
+
+
+APP_VERSION = get_app_version()
 
 
 class AppConfig:
@@ -606,6 +621,7 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                         "maskedKey": CONFIG.masked_key(),
                         "cardCount": CONFIG.card_count,
                         "platform": platform.system(),
+                        "version": APP_VERSION,
                     },
                 )
                 return
@@ -873,7 +889,12 @@ MACOS_APP_BUNDLE = APP_DIR / "FiveQThoughts.app"
 MACOS_APP_BINARY = MACOS_APP_BUNDLE / "Contents" / "MacOS" / "FiveQThoughts"
 MACOS_INFO_PLIST = MACOS_APP_BUNDLE / "Contents" / "Info.plist"
 
-MACOS_PLIST_CONTENT = """<?xml version="1.0" encoding="UTF-8"?>
+WINDOWS_CS_SOURCE = APP_DIR / "native" / "windows_host.cs"
+WINDOWS_EXE_BINARY = APP_DIR / "FiveQThoughts.exe"
+
+
+def get_macos_plist_content() -> str:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -888,7 +909,9 @@ MACOS_PLIST_CONTENT = """<?xml version="1.0" encoding="UTF-8"?>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.1.0</string>
+    <string>{APP_VERSION}</string>
+    <key>CFBundleVersion</key>
+    <string>{APP_VERSION}</string>
     <key>LSMinimumSystemVersion</key>
     <string>12.0</string>
     <key>NSHighResolutionCapable</key>
@@ -915,8 +938,7 @@ def ensure_macos_native_app() -> Optional[Path]:
         return None
 
     MACOS_APP_BINARY.parent.mkdir(parents=True, exist_ok=True)
-    if not MACOS_INFO_PLIST.is_file():
-        MACOS_INFO_PLIST.write_text(MACOS_PLIST_CONTENT, encoding="utf-8")
+    MACOS_INFO_PLIST.write_text(get_macos_plist_content(), encoding="utf-8")
 
     needs_build = not MACOS_APP_BINARY.is_file()
     if not needs_build:
@@ -929,7 +951,7 @@ def ensure_macos_native_app() -> Optional[Path]:
         swiftc = "/usr/bin/swiftc"
         if not os.path.isfile(swiftc):
             return None
-        print("Kompiliere native macOS-App (FiveQThoughts.app)...")
+        print(f"Kompiliere native macOS-App (FiveQThoughts.app v{APP_VERSION})...")
         proc = subprocess.run(
             [swiftc, "-O", str(MACOS_SWIFT_SOURCE), "-o", str(MACOS_APP_BINARY)],
             capture_output=True,
@@ -940,6 +962,51 @@ def ensure_macos_native_app() -> Optional[Path]:
             return None
 
     return MACOS_APP_BINARY if MACOS_APP_BINARY.is_file() else None
+
+
+def ensure_windows_native_app() -> Optional[Path]:
+    """Compile native/windows_host.cs into FiveQThoughts.exe using built-in Windows .NET csc.exe if needed."""
+    if platform.system() != "Windows" or not WINDOWS_CS_SOURCE.is_file():
+        return None
+
+    needs_build = not WINDOWS_EXE_BINARY.is_file()
+    if not needs_build:
+        try:
+            needs_build = WINDOWS_CS_SOURCE.stat().st_mtime > WINDOWS_EXE_BINARY.stat().st_mtime
+        except OSError:
+            needs_build = True
+
+    if needs_build:
+        win_dir = os.environ.get("WINDIR", r"C:\Windows")
+        csc_candidates = [
+            os.path.join(win_dir, "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe"),
+            os.path.join(win_dir, "Microsoft.NET", "Framework", "v4.0.30319", "csc.exe"),
+        ]
+        csc_path = next((p for p in csc_candidates if os.path.isfile(p)), None)
+        if not csc_path:
+            return None
+
+        print(f"Kompiliere native Windows-App (FiveQThoughts.exe v{APP_VERSION})...")
+        proc = subprocess.run(
+            [
+                csc_path,
+                "/nologo",
+                "/target:winexe",
+                "/optimize+",
+                f"/out:{WINDOWS_EXE_BINARY}",
+                "/r:System.dll",
+                "/r:System.Drawing.dll",
+                "/r:System.Windows.Forms.dll",
+                str(WINDOWS_CS_SOURCE),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            print(f"Warnung: Native Windows-App konnte nicht kompiliert werden: {proc.stdout} {proc.stderr}")
+            return None
+
+    return WINDOWS_EXE_BINARY if WINDOWS_EXE_BINARY.is_file() else None
 
 
 def start_windows_global_hotkey(url: str):
@@ -1071,7 +1138,7 @@ def main():
     server = ThreadingHTTPServer(("127.0.0.1", port), FiveQRequestHandler)
     url = f"http://127.0.0.1:{port}"
 
-    print(f"FiveQThoughts läuft auf {url}")
+    print(f"FiveQThoughts v{APP_VERSION} läuft auf {url}")
     print(f"Verbunden mit TheBrain API: {CONFIG.base_url}/api/v2/quick-thoughts")
     if CONFIG.api_key:
         print(f"API Key geladen: {CONFIG.masked_key()}")
@@ -1086,6 +1153,24 @@ def main():
             server_thread.start()
             print("Starte eigenständige macOS-App FiveQThoughts (Globaler Shortcut: ⌃⌥Q)...")
             native_proc = subprocess.Popen([str(native_bin), "--url", url])
+            try:
+                native_proc.wait()
+            except KeyboardInterrupt:
+                native_proc.terminate()
+            finally:
+                print("\nFiveQThoughts beendet.")
+                server.shutdown()
+                server.server_close()
+            return
+
+    # Native Windows standalone app mode (FiveQThoughts.exe with Tray Icon + global hotkey Ctrl+Alt+Q)
+    if not args.no_browser and not args.browser_mode and platform.system() == "Windows":
+        win_bin = ensure_windows_native_app()
+        if win_bin:
+            server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+            server_thread.start()
+            print("Starte eigenständige Windows-App FiveQThoughts.exe (Globaler Shortcut: Ctrl+Alt+Q)...")
+            native_proc = subprocess.Popen([str(win_bin), "--url", url])
             try:
                 native_proc.wait()
             except KeyboardInterrupt:

@@ -18,9 +18,10 @@ Kompakte, plattformübergreifende App (**macOS & Windows**) zum schnellen Sichte
   - Löscht den Quick Thought über `DELETE /api/v2/quick-thoughts/{id}` und lädt automatisch den nächstälteren Quick Thought nach, sodass immer 5 Karten sichtbar bleiben.
   - Wahlweise mit Sicherheitsabfrage (`Löschen? Ja / Nein`) oder per Schalter **„Sofort löschen“** mit einem Klick.
 - **🖥️ Eigenständige Desktop-App & Systemweiter Shortcut (`⌃⌥Q` / `Ctrl+Alt+Q`)**:
-  - **macOS**: Kompiliert beim ersten Start automatisch eine leichtgewichtige native macOS-App (`FiveQThoughts.app` auf Basis des System-`WKWebView`, nur ~110 KB Binary, kein Electron/Chromium-Overhead). Erscheint als **eigenständige App mit eigenem Blitz-Icon in `⌘+Tab` und im Dock** sowie als Menüleistensymbol **`⚡5Q`**.
+  - **macOS (`FiveQThoughts.app`)**: Kompiliert beim ersten Start aus `native/macos_host.swift` automatisch eine leichtgewichtige native macOS-App (System-`WKWebView`, ~110 KB Binary). Erscheint als **eigenständige App mit Blitz-Icon in `⌘+Tab` und im Dock** sowie als Menüleistensymbol **`⚡5Q`**.
+  - **Windows (`FiveQThoughts.exe`)**: Kompiliert beim ersten Start aus `native/windows_host.cs` mit dem in Windows vorinstallierten .NET-Compiler (`csc.exe`) automatisch eine eigenständige `FiveQThoughts.exe` inklusive **System-Tray-Icon** (Blitz-Symbol neben der Windows-Uhr) und eigenem App-Fenster.
   - **Globaler Shortcut**: Mit **`⌃⌥Q`** (`Ctrl+Option+Q` auf macOS) bzw. **`Ctrl+Alt+Q`** (auf Windows) lässt sich das Fenster jederzeit systemweit aus jeder anderen Anwendung heraus in den Vordergrund holen oder wieder ausblenden.
-  - Wenn man auf macOS das Fenster mit `⌘W` oder dem roten Schließen-Button schließt, läuft die App ressourcenschonend im Hintergrund weiter und ist sofort per `⌃⌥Q` wieder da (`⌘Q` beendet sie komplett).
+  - **Versionierung**: Die aktuelle SemVer-Version wird zentral in der Datei [`VERSION`](./VERSION) gepflegt und in der UI, im macOS-Bundle sowie im Backend ausgewiesen.
 
 ## Voraussetzungen
 
