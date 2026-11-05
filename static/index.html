@@ -13,7 +13,8 @@
       <div>
         <div class="brand-title-row">
           <h1>FiveQThoughts</h1>
-          <span id="versionBadge" class="version-badge">v1.2.0</span>
+          <span id="versionBadge" class="version-badge">v1.4.0</span>
+          <span id="backendBadge" class="backend-badge" title="">💻 Lokal</span>
         </div>
         <span id="statusSubtitle" class="subtitle">Verbinde mit TheBrain API…</span>
       </div>
@@ -125,15 +126,30 @@
       </div>
       <form id="settingsForm" class="modal-body">
         <div class="field">
-          <label for="baseUrlInput" id="settingsUrlLabel">TheBrain Server URL</label>
+          <label for="connectionModeSelect" id="settingsModeLabel">Verbindungsmodus</label>
+          <select id="connectionModeSelect">
+            <option value="auto" id="modeAutoOpt">Automatisch (Lokal bevorzugt → Cloud-Fallback)</option>
+            <option value="local" id="modeLocalOpt">Nur Lokal (TheBrain 15 Desktop)</option>
+            <option value="cloud" id="modeCloudOpt">Nur Cloud / Web-API (api.bra.in)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="baseUrlInput" id="settingsUrlLabel">Lokale TheBrain Server URL</label>
           <input type="url" id="baseUrlInput" placeholder="http://localhost:11524" required />
           <small id="settingsUrlHint">Standard lokal: <code>http://localhost:11524</code> (Endpunkt <code>/api/v2/quick-thoughts</code>)</small>
         </div>
 
         <div class="field">
           <label for="apiKeyInput" id="settingsKeyLabel">Local API Key (Bearer Token)</label>
-          <input type="password" id="apiKeyInput" placeholder="Neuen Key eingeben (leer lassen zum Beibehalten)" autocomplete="off" />
+          <input type="password" id="apiKeyInput" placeholder="Neuen lokalen Key eingeben (leer lassen zum Beibehalten)" autocomplete="off" />
           <small id="currentKeyHint">Zu finden in TheBrain 15 unter <strong>Settings &gt; User &gt; Local API</strong>.</small>
+        </div>
+
+        <div class="field">
+          <label for="cloudApiKeyInput" id="settingsCloudKeyLabel">Cloud / Web API Key (für Fallback auf api.bra.in)</label>
+          <input type="password" id="cloudApiKeyInput" placeholder="Neuen Cloud-Key eingeben (leer lassen zum Beibehalten)" autocomplete="off" />
+          <small id="currentCloudKeyHint">Optional für Cloud-Fallback. Erstellen unter <a href="https://app.thebrain.com/api-keys" target="_blank" rel="noopener noreferrer">app.thebrain.com/api-keys</a>.</small>
         </div>
 
         <div class="field">

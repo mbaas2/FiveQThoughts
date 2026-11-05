@@ -21,13 +21,16 @@ Kompakte, plattformübergreifende App (**macOS & Windows**) zum schnellen Sichte
   - **macOS (`FiveQThoughts.app`)**: Kompiliert beim ersten Start aus `native/macos_host.swift` automatisch eine leichtgewichtige native macOS-App (System-`WKWebView`, ~110 KB Binary). Erscheint als **eigenständige App mit Blitz-Icon in `⌘+Tab` und im Dock** sowie als Menüleistensymbol **`⚡5Q`**.
   - **Windows (`FiveQThoughts.exe`)**: Kompiliert beim ersten Start aus `native/windows_host.cs` mit dem in Windows vorinstallierten .NET-Compiler (`csc.exe`) automatisch eine eigenständige `FiveQThoughts.exe` inklusive **System-Tray-Icon** (Blitz-Symbol neben der Windows-Uhr) und eigenem App-Fenster.
   - **Globaler Shortcut**: Mit **`⌃⌥Q`** (`Ctrl+Option+Q` auf macOS) bzw. **`Ctrl+Alt+Q`** (auf Windows) lässt sich das Fenster jederzeit systemweit aus jeder anderen Anwendung heraus in den Vordergrund holen oder wieder ausblenden.
+  - **☁️ Automatischer Cloud-Fallback (TheBrain Web-API `api.bra.in`)**: Funktioniert auch, wenn die lokale Desktop-App gerade nicht geöffnet ist! Standardmäßig wird die blitzschnelle lokale Instanz (`http://localhost:11524`) genutzt. Ist TheBrain lokal nicht erreichbar, schaltet FiveQThoughts vollautomatisch auf die offizielle Cloud-API (`https://api.bra.in/v2/...`) um (einstellbar unter `⚙ API` mit Cloud-Key von [app.thebrain.com/api-keys](https://app.thebrain.com/api-keys)). Ein Badge in der Kopfzeile zeigt den aktuellen Status (`💻 Lokal` / `☁️ Cloud`).
   - **🌍 Mehrsprachigkeit (i18n JSON)**: Vollständig lokalisiert in **Deutsch** (`static/i18n/de.json`) und **Englisch** (`static/i18n/en.json`). Erkennt beim Start automatisch die Systemsprache (`de` oder `en`, Fallback `en`) und erlaubt jederzeit den direkten Sprachwechsel in der Kopfzeile (`🇩🇪 DE` / `🇬🇧 EN`) oder in den Einstellungen.
   - **Versionierung**: Die aktuelle SemVer-Version wird zentral in der Datei [`VERSION`](./VERSION) gepflegt und in der UI, im macOS-Bundle sowie im Backend ausgewiesen.
 
 ## Voraussetzungen
 
-- **TheBrain 15** läuft lokal (Standard-Port: `http://localhost:11524`).
-- **Local API Key** aus **TheBrain 15 → Settings → User → Local API** *(Hinweis: Nicht der MCP-Key aus den AI-Einstellungen, da `/api/v2/quick-thoughts` den Local-API-Key erwartet)*.
+- **TheBrain 15** (lokal installiert) und/oder ein Account auf **TheBrain Cloud** ([app.thebrain.com](https://app.thebrain.com)).
+- **API Key**:
+  - Für lokale Nutzung: **Local API Key** aus **TheBrain 15 → Settings → User → Local API**.
+  - Für Cloud-Fallback (wenn TheBrain Desktop nicht läuft): **Cloud API Key** aus [app.thebrain.com/api-keys](https://app.thebrain.com/api-keys).
 - **Python 3.9+** (auf macOS und Windows ohne `pip install` direkt lauffähig).
 
 ## Starten

@@ -37,6 +37,7 @@ DEFAULT_CONFIG_PATH = APP_DIR / "config.json"
 USER_CONFIG_PATH = Path.home() / ".fiveqthoughts.json"
 
 DEFAULT_BASE_URL = "http://localhost:11524"
+DEFAULT_CLOUD_URL = "https://api.bra.in"
 DEFAULT_CARD_COUNT = 5
 
 
@@ -58,8 +59,12 @@ class AppConfig:
     def __init__(self):
         self.base_url: str = DEFAULT_BASE_URL
         self.api_key: str = ""
+        self.cloud_url: str = DEFAULT_CLOUD_URL
+        self.cloud_api_key: str = ""
+        self.connection_mode: str = "auto"  # "auto" | "local" | "cloud"
         self.card_count: int = DEFAULT_CARD_COUNT
         self.language: str = "auto"
+        self.active_backend: str = "local"  # "local" | "cloud"
         self.load()
 
     def load(self):
@@ -71,6 +76,12 @@ class AppConfig:
                         self.base_url = str(data["baseUrl"]).rstrip("/")
                     if data.get("apiKey"):
                         self.api_key = str(data["apiKey"]).strip()
+                    if data.get("cloudUrl"):
+                        self.cloud_url = str(data["cloudUrl"]).rstrip("/")
+                    if data.get("cloudApiKey"):
+                        self.cloud_api_key = str(data["cloudApiKey"]).strip()
+                    if data.get("connectionMode") in ("auto", "local", "cloud"):
+                        self.connection_mode = str(data["connectionMode"]).strip().lower()
                     if data.get("cardCount"):
                         self.card_count = int(data["cardCount"])
                     if data.get("language"):
@@ -84,10 +95,15 @@ class AppConfig:
         env_key = os.environ.get("THEBRAIN_API_KEY", "").strip()
         if env_key:
             self.api_key = env_key
+        env_cloud_key = os.environ.get("THEBRAIN_CLOUD_API_KEY", "").strip()
+        if env_cloud_key:
+            self.cloud_api_key = env_cloud_key
 
-        for suffix in ["/mcp", "/api/v2", "/api"]:
+        for suffix in ["/mcp", "/api/v2", "/api", "/v2"]:
             if self.base_url.endswith(suffix):
                 self.base_url = self.base_url[: -len(suffix)].rstrip("/")
+            if self.cloud_url.endswith(suffix):
+                self.cloud_url = self.cloud_url[: -len(suffix)].rstrip("/")
 
     def save(
         self,
@@ -95,13 +111,26 @@ class AppConfig:
         api_key: str,
         card_count: int = DEFAULT_CARD_COUNT,
         language: Optional[str] = None,
+        cloud_url: Optional[str] = None,
+        cloud_api_key: Optional[str] = None,
+        connection_mode: Optional[str] = None,
     ):
         base_url = base_url.strip().rstrip("/")
-        for suffix in ["/mcp", "/api/v2", "/api"]:
+        for suffix in ["/mcp", "/api/v2", "/api", "/v2"]:
             if base_url.endswith(suffix):
                 base_url = base_url[: -len(suffix)].rstrip("/")
         self.base_url = base_url or DEFAULT_BASE_URL
         self.api_key = api_key.strip()
+        if cloud_url is not None:
+            c_url = cloud_url.strip().rstrip("/")
+            for suffix in ["/mcp", "/api/v2", "/api", "/v2"]:
+                if c_url.endswith(suffix):
+                    c_url = c_url[: -len(suffix)].rstrip("/")
+            self.cloud_url = c_url or DEFAULT_CLOUD_URL
+        if cloud_api_key is not None:
+            self.cloud_api_key = cloud_api_key.strip()
+        if connection_mode in ("auto", "local", "cloud"):
+            self.connection_mode = connection_mode
         self.card_count = max(1, min(25, int(card_count)))
         if language in ("auto", "de", "en"):
             self.language = language
@@ -109,17 +138,27 @@ class AppConfig:
         payload = {
             "baseUrl": self.base_url,
             "apiKey": self.api_key,
+            "cloudUrl": self.cloud_url,
+            "cloudApiKey": self.cloud_api_key,
+            "connectionMode": self.connection_mode,
             "cardCount": self.card_count,
             "language": self.language,
         }
         LOCAL_CONFIG_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-    def masked_key(self) -> str:
-        if not self.api_key:
+    @staticmethod
+    def _mask(k: str) -> str:
+        if not k:
             return ""
-        if len(self.api_key) <= 8:
-            return "*" * len(self.api_key)
-        return f"{self.api_key[:4]}…{self.api_key[-4:]}"
+        if len(k) <= 8:
+            return "*" * len(k)
+        return f"{k[:4]}…{k[-4:]}"
+
+    def masked_key(self) -> str:
+        return self._mask(self.api_key)
+
+    def masked_cloud_key(self) -> str:
+        return self._mask(self.cloud_api_key)
 
 
 CONFIG = AppConfig()
@@ -133,23 +172,41 @@ class TheBrainApiError(Exception):
         self.details = details
 
 
-def thebrain_request(
+def _build_target_url(target: str, path: str) -> str:
+    """
+    Build the full URL for either 'local' (http://localhost:11524/api/v2/...)
+    or 'cloud' (https://api.bra.in/v2/...).
+    """
+    if target == "cloud":
+        # Cloud API uses /v2/... instead of /api/v2/...
+        cloud_path = path[4:] if path.startswith("/api/v2/") else path
+        return f"{CONFIG.cloud_url}{cloud_path}"
+    return f"{CONFIG.base_url}{path}"
+
+
+def _single_target_request(
+    target: str,
     method: str,
     path: str,
     body: bytes = None,
     content_type: str = None,
     timeout: float = 20.0,
 ) -> tuple[bytes, str]:
-    """Perform an HTTP request against TheBrain's REST API."""
-    if not CONFIG.api_key:
+    key = CONFIG.cloud_api_key if target == "cloud" else CONFIG.api_key
+    if not key:
+        if target == "cloud":
+            raise TheBrainApiError(
+                401,
+                "Kein TheBrain Cloud API Key konfiguriert. Bitte in den API-Einstellungen einen Cloud-Key (https://app.thebrain.com/api-keys) eintragen.",
+            )
         raise TheBrainApiError(
             401,
             "Kein TheBrain Local API Key konfiguriert. Bitte in den API-Einstellungen den Key aus 'TheBrain -> Settings -> User -> Local API' eintragen.",
         )
 
-    url = f"{CONFIG.base_url}{path}"
+    url = _build_target_url(target, path)
     headers = {
-        "Authorization": f"Bearer {CONFIG.api_key}",
+        "Authorization": f"Bearer {key}",
         "Accept": "application/json, */*",
     }
     if content_type:
@@ -159,6 +216,7 @@ def thebrain_request(
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             resp_ct = resp.headers.get("Content-Type", "application/octet-stream")
+            CONFIG.active_backend = target
             return resp.read(), resp_ct
     except urllib.error.HTTPError as err:
         raw_body = b""
@@ -176,12 +234,60 @@ def thebrain_request(
             pass
         if not text_body:
             text_body = f"HTTP {err.code}: {err.reason}"
-        raise TheBrainApiError(err.code, text_body, details=details)
+        raise TheBrainApiError(err.code, f"[{target.upper()}] {text_body}", details=details)
     except urllib.error.URLError as err:
+        server_label = CONFIG.cloud_url if target == "cloud" else CONFIG.base_url
         raise TheBrainApiError(
             503,
-            f"TheBrain Server unter {CONFIG.base_url} nicht erreichbar ({err.reason}). Läuft TheBrain 15?",
+            f"TheBrain ({target}) unter {server_label} nicht erreichbar ({err.reason}).",
         )
+
+
+def thebrain_request(
+    method: str,
+    path: str,
+    body: bytes = None,
+    content_type: str = None,
+    timeout: float = 20.0,
+) -> tuple[bytes, str]:
+    """
+    Perform an HTTP request against TheBrain's REST API.
+    Supports 'local', 'cloud', or 'auto' (tries local first with fast timeout; if local is offline, falls back to cloud).
+    """
+    mode = CONFIG.connection_mode
+    if mode == "local":
+        return _single_target_request("local", method, path, body=body, content_type=content_type, timeout=timeout)
+    if mode == "cloud":
+        return _single_target_request("cloud", method, path, body=body, content_type=content_type, timeout=timeout)
+
+    # Auto mode: Try local first if local key is configured
+    local_err = None
+    if CONFIG.api_key:
+        try:
+            local_timeout = min(timeout, 2.5) if method == "GET" else timeout
+            return _single_target_request(
+                "local", method, path, body=body, content_type=content_type, timeout=local_timeout
+            )
+        except TheBrainApiError as err:
+            local_err = err
+            # Only fallback to cloud if local server is unreachable (503) or returned 5xx
+            if err.status not in (502, 503, 504) and not CONFIG.cloud_api_key:
+                raise
+
+    if CONFIG.cloud_api_key:
+        return _single_target_request("cloud", method, path, body=body, content_type=content_type, timeout=timeout)
+
+    if local_err:
+        raise TheBrainApiError(
+            local_err.status,
+            f"{local_err.message} (Tipp: Hinterlege in den API-Einstellungen zusätzlich einen Cloud API Key für automatischen Fallback auf api.bra.in)",
+            details=local_err.details,
+        )
+
+    raise TheBrainApiError(
+        401,
+        "Weder ein Local API Key noch ein Cloud API Key ist konfiguriert. Bitte in den API-Einstellungen eintragen.",
+    )
 
 
 def build_multipart_formdata(files: list[dict]) -> tuple[bytes, str]:
@@ -318,6 +424,7 @@ def fetch_summaries_only(limit: int = DEFAULT_CARD_COUNT) -> dict:
         "totalCount": len(summaries),
         "signature": f"{len(summaries)}#{signature}",
         "topSummaries": top,
+        "activeBackend": CONFIG.active_backend,
     }
 
 
@@ -365,6 +472,7 @@ def fetch_top_thoughts(limit: int = DEFAULT_CARD_COUNT) -> dict:
         "signature": f"{len(summaries)}#{signature}",
         "cards": ordered_cards,
         "allSummaries": summaries,
+        "activeBackend": CONFIG.active_backend,
     }
 
 
@@ -631,6 +739,11 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                         "baseUrl": CONFIG.base_url,
                         "hasApiKey": bool(CONFIG.api_key),
                         "maskedKey": CONFIG.masked_key(),
+                        "cloudUrl": CONFIG.cloud_url,
+                        "hasCloudApiKey": bool(CONFIG.cloud_api_key),
+                        "maskedCloudKey": CONFIG.masked_cloud_key(),
+                        "connectionMode": CONFIG.connection_mode,
+                        "activeBackend": CONFIG.active_backend,
                         "cardCount": CONFIG.card_count,
                         "language": CONFIG.language,
                         "platform": platform.system(),
@@ -762,9 +875,22 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                 api_key = body.get("apiKey")
                 if api_key is None or api_key == "":
                     api_key = CONFIG.api_key
+                cloud_url = body.get("cloudUrl") or CONFIG.cloud_url
+                cloud_api_key = body.get("cloudApiKey")
+                if cloud_api_key is None or cloud_api_key == "":
+                    cloud_api_key = CONFIG.cloud_api_key
+                connection_mode = body.get("connectionMode") or CONFIG.connection_mode
                 card_count = int(body.get("cardCount") or CONFIG.card_count)
                 language = body.get("language") or CONFIG.language
-                CONFIG.save(base_url=base_url, api_key=api_key, card_count=card_count, language=language)
+                CONFIG.save(
+                    base_url=base_url,
+                    api_key=api_key,
+                    card_count=card_count,
+                    language=language,
+                    cloud_url=cloud_url,
+                    cloud_api_key=cloud_api_key,
+                    connection_mode=connection_mode,
+                )
                 total_count = 0
                 if not body.get("languageOnly"):
                     data = fetch_top_thoughts(limit=CONFIG.card_count)
@@ -774,7 +900,13 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                     {
                         "ok": True,
                         "baseUrl": CONFIG.base_url,
+                        "hasApiKey": bool(CONFIG.api_key),
                         "maskedKey": CONFIG.masked_key(),
+                        "cloudUrl": CONFIG.cloud_url,
+                        "hasCloudApiKey": bool(CONFIG.cloud_api_key),
+                        "maskedCloudKey": CONFIG.masked_cloud_key(),
+                        "connectionMode": CONFIG.connection_mode,
+                        "activeBackend": CONFIG.active_backend,
                         "cardCount": CONFIG.card_count,
                         "language": CONFIG.language,
                         "totalCount": total_count,

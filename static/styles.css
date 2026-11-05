@@ -88,6 +88,22 @@ body {
   border: 1px solid rgba(59, 130, 246, 0.35);
 }
 
+.backend-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.backend-badge.cloud {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fcd34d;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
 .subtitle {
   display: block;
   font-size: 12px;

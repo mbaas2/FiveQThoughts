@@ -11,9 +11,13 @@ const state = {
   confirmingDeleteId: null,
   lightboxImage: null,
   // Config & i18n
-  version: "1.2.0",
+  version: "1.4.0",
   hasApiKey: false,
   maskedKey: "",
+  hasCloudApiKey: false,
+  maskedCloudKey: "",
+  connectionMode: "auto", // "auto" | "local" | "cloud"
+  activeBackend: "local", // "local" | "cloud"
   languagePref: "auto", // "auto" | "de" | "en"
   activeLang: "en", // "de" | "en"
   i18n: {},
@@ -26,6 +30,7 @@ const state = {
 
 const els = {
   versionBadge: document.getElementById("versionBadge"),
+  backendBadge: document.getElementById("backendBadge"),
   statusSubtitle: document.getElementById("statusSubtitle"),
   newThoughtBtn: document.getElementById("newThoughtBtn"),
   autoSyncLabel: document.getElementById("autoSyncLabel"),
@@ -66,11 +71,19 @@ const els = {
   cancelSettingsBtn: document.getElementById("cancelSettingsBtn"),
   saveSettingsBtn: document.getElementById("saveSettingsBtn"),
   settingsForm: document.getElementById("settingsForm"),
+  settingsModeLabel: document.getElementById("settingsModeLabel"),
+  connectionModeSelect: document.getElementById("connectionModeSelect"),
+  modeAutoOpt: document.getElementById("modeAutoOpt"),
+  modeLocalOpt: document.getElementById("modeLocalOpt"),
+  modeCloudOpt: document.getElementById("modeCloudOpt"),
   settingsUrlLabel: document.getElementById("settingsUrlLabel"),
   settingsUrlHint: document.getElementById("settingsUrlHint"),
   baseUrlInput: document.getElementById("baseUrlInput"),
   settingsKeyLabel: document.getElementById("settingsKeyLabel"),
   apiKeyInput: document.getElementById("apiKeyInput"),
+  settingsCloudKeyLabel: document.getElementById("settingsCloudKeyLabel"),
+  cloudApiKeyInput: document.getElementById("cloudApiKeyInput"),
+  currentCloudKeyHint: document.getElementById("currentCloudKeyHint"),
   settingsCountLabel: document.getElementById("settingsCountLabel"),
   cardCountInput: document.getElementById("cardCountInput"),
   settingsLangLabel: document.getElementById("settingsLangLabel"),
@@ -176,16 +189,27 @@ function applyStaticTranslations() {
   // Settings modal
   els.settingsTitle.textContent = t("settings.title");
   els.closeSettingsBtn.setAttribute("aria-label", t("editor.closeAria"));
+  if (els.settingsModeLabel) {
+    els.settingsModeLabel.textContent = t("settings.connectionModeLabel");
+    els.modeAutoOpt.textContent = t("settings.modeAuto");
+    els.modeLocalOpt.textContent = t("settings.modeLocal");
+    els.modeCloudOpt.textContent = t("settings.modeCloud");
+  }
   els.settingsUrlLabel.textContent = t("settings.serverUrlLabel");
   els.settingsUrlHint.innerHTML = t("settings.serverUrlHintHtml");
   els.settingsKeyLabel.textContent = t("settings.apiKeyLabel");
   els.apiKeyInput.placeholder = t("settings.apiKeyPlaceholder");
+  if (els.settingsCloudKeyLabel) {
+    els.settingsCloudKeyLabel.textContent = t("settings.cloudApiKeyLabel");
+    els.cloudApiKeyInput.placeholder = t("settings.cloudApiKeyPlaceholder");
+  }
   els.settingsCountLabel.textContent = t("settings.cardCountLabel");
   els.settingsLangLabel.textContent = t("settings.languageLabel");
   els.settingsLangAutoOpt.textContent = t("settings.languageAuto");
   els.cancelSettingsBtn.textContent = t("settings.cancelBtn");
   els.saveSettingsBtn.textContent = t("settings.saveBtn");
   updateKeyHintText();
+  updateBackendBadge();
 
   // Lightbox
   els.lightboxCopyBtn.textContent = t("lightbox.copyBtn");
@@ -197,6 +221,19 @@ function applyStaticTranslations() {
   }
 }
 
+function updateBackendBadge() {
+  if (!els.backendBadge) return;
+  if (state.activeBackend === "cloud") {
+    els.backendBadge.textContent = t("topbar.backendCloud");
+    els.backendBadge.title = t("topbar.backendCloudTitle");
+    els.backendBadge.classList.add("cloud");
+  } else {
+    els.backendBadge.textContent = t("topbar.backendLocal");
+    els.backendBadge.title = t("topbar.backendLocalTitle");
+    els.backendBadge.classList.remove("cloud");
+  }
+}
+
 function updateKeyHintText() {
   if (state.hasApiKey) {
     els.currentKeyHint.innerHTML = t("settings.activeKeyHintHtml", {
@@ -204,6 +241,15 @@ function updateKeyHintText() {
     });
   } else {
     els.currentKeyHint.innerHTML = t("settings.noKeyHintHtml");
+  }
+  if (els.currentCloudKeyHint) {
+    if (state.hasCloudApiKey) {
+      els.currentCloudKeyHint.innerHTML = t("settings.activeCloudKeyHintHtml", {
+        maskedKey: escapeHtml(state.maskedCloudKey),
+      });
+    } else {
+      els.currentCloudKeyHint.innerHTML = t("settings.noCloudKeyHintHtml");
+    }
   }
 }
 
@@ -931,8 +977,17 @@ async function loadConfig() {
   state.cardCount = cfg.cardCount || 5;
   state.hasApiKey = Boolean(cfg.hasApiKey);
   state.maskedKey = cfg.maskedKey || "";
+  state.hasCloudApiKey = Boolean(cfg.hasCloudApiKey);
+  state.maskedCloudKey = cfg.maskedCloudKey || "";
+  state.connectionMode = cfg.connectionMode || "auto";
+  if (cfg.activeBackend) {
+    state.activeBackend = cfg.activeBackend;
+  }
   els.baseUrlInput.value = cfg.baseUrl || "http://localhost:11524";
   els.cardCountInput.value = state.cardCount;
+  if (els.connectionModeSelect) {
+    els.connectionModeSelect.value = state.connectionMode;
+  }
 
   const savedLang = localStorage.getItem("fiveq_lang");
   const pref = cfg.language && cfg.language !== "auto" ? cfg.language : savedLang || "auto";
@@ -974,6 +1029,10 @@ async function loadThoughts(showLoadingStatus = true) {
     state.allSummaries = data.allSummaries || [];
     state.totalCount = data.totalCount || state.cards.length;
     state.signature = data.signature || "";
+    if (data.activeBackend) {
+      state.activeBackend = data.activeBackend;
+      updateBackendBadge();
+    }
     state.confirmingDeleteId = null;
 
     renderCards();
@@ -1004,6 +1063,10 @@ async function pollForUpdates() {
     const resp = await fetch(`/api/thoughts/poll?limit=${state.cardCount}`);
     if (!resp.ok) return;
     const data = await resp.json();
+    if (data.activeBackend && data.activeBackend !== state.activeBackend) {
+      state.activeBackend = data.activeBackend;
+      updateBackendBadge();
+    }
     if (state.signature && data.signature && data.signature !== state.signature) {
       await loadThoughts(false);
       showToast(t("toasts.autoSynced"));
@@ -1072,6 +1135,7 @@ if (els.langSelect) {
 els.settingsBtn.addEventListener("click", async () => {
   await loadConfig();
   els.apiKeyInput.value = "";
+  if (els.cloudApiKeyInput) els.cloudApiKeyInput.value = "";
   els.settingsModal.classList.remove("hidden");
 });
 
@@ -1081,9 +1145,12 @@ els.cancelSettingsBtn.addEventListener("click", () => els.settingsModal.classLis
 els.settingsForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const selectedLang = els.settingsLangSelect ? els.settingsLangSelect.value : state.languagePref;
+  const selectedMode = els.connectionModeSelect ? els.connectionModeSelect.value : state.connectionMode;
   const payload = {
     baseUrl: els.baseUrlInput.value.trim(),
     apiKey: els.apiKeyInput.value.trim(),
+    cloudApiKey: els.cloudApiKeyInput ? els.cloudApiKeyInput.value.trim() : "",
+    connectionMode: selectedMode,
     cardCount: parseInt(els.cardCountInput.value, 10) || 5,
     language: selectedLang,
   };
@@ -1098,6 +1165,9 @@ els.settingsForm.addEventListener("submit", async (e) => {
       throw new Error(data.error || `HTTP ${resp.status}`);
     }
     state.cardCount = data.cardCount || 5;
+    if (data.activeBackend) {
+      state.activeBackend = data.activeBackend;
+    }
     localStorage.setItem("fiveq_lang", selectedLang);
     await loadTranslations(selectedLang);
     els.settingsModal.classList.add("hidden");
