@@ -64,6 +64,7 @@ class AppConfig:
         self.connection_mode: str = "auto"  # "auto" | "local" | "cloud"
         self.card_count: int = DEFAULT_CARD_COUNT
         self.language: str = "auto"
+        self.theme: str = "auto"  # "auto" | "light" | "dark"
         self.active_backend: str = "local"  # "local" | "cloud"
         self.load()
 
@@ -86,6 +87,8 @@ class AppConfig:
                         self.card_count = int(data["cardCount"])
                     if data.get("language"):
                         self.language = str(data["language"]).strip().lower()
+                    if data.get("theme") in ("auto", "light", "dark"):
+                        self.theme = str(data["theme"]).strip().lower()
                 except Exception as exc:
                     print(f"[WARN] Could not read {path}: {exc}", file=sys.stderr)
 
@@ -114,6 +117,7 @@ class AppConfig:
         cloud_url: Optional[str] = None,
         cloud_api_key: Optional[str] = None,
         connection_mode: Optional[str] = None,
+        theme: Optional[str] = None,
     ):
         base_url = base_url.strip().rstrip("/")
         for suffix in ["/mcp", "/api/v2", "/api", "/v2"]:
@@ -134,6 +138,8 @@ class AppConfig:
         self.card_count = max(1, min(25, int(card_count)))
         if language in ("auto", "de", "en"):
             self.language = language
+        if theme in ("auto", "light", "dark"):
+            self.theme = theme
 
         payload = {
             "baseUrl": self.base_url,
@@ -143,6 +149,7 @@ class AppConfig:
             "connectionMode": self.connection_mode,
             "cardCount": self.card_count,
             "language": self.language,
+            "theme": self.theme,
         }
         LOCAL_CONFIG_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -746,6 +753,7 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                         "activeBackend": CONFIG.active_backend,
                         "cardCount": CONFIG.card_count,
                         "language": CONFIG.language,
+                        "theme": CONFIG.theme,
                         "platform": platform.system(),
                         "version": APP_VERSION,
                     },
@@ -882,6 +890,7 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                 connection_mode = body.get("connectionMode") or CONFIG.connection_mode
                 card_count = int(body.get("cardCount") or CONFIG.card_count)
                 language = body.get("language") or CONFIG.language
+                theme = body.get("theme") or CONFIG.theme
                 CONFIG.save(
                     base_url=base_url,
                     api_key=api_key,
@@ -890,9 +899,10 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                     cloud_url=cloud_url,
                     cloud_api_key=cloud_api_key,
                     connection_mode=connection_mode,
+                    theme=theme,
                 )
                 total_count = 0
-                if not body.get("languageOnly"):
+                if not body.get("languageOnly") and not body.get("themeOnly"):
                     data = fetch_top_thoughts(limit=CONFIG.card_count)
                     total_count = data["totalCount"]
                 self._send_json(
@@ -909,6 +919,7 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                         "activeBackend": CONFIG.active_backend,
                         "cardCount": CONFIG.card_count,
                         "language": CONFIG.language,
+                        "theme": CONFIG.theme,
                         "totalCount": total_count,
                     },
                 )

@@ -166,7 +166,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         window.center()
         window.title = "FiveQThoughts — TheBrain Quick Thoughts (⌃⌥Q)"
         window.minSize = NSSize(width: 420, height: 480)
-        window.backgroundColor = NSColor(calibratedRed: 0.06, green: 0.08, blue: 0.11, alpha: 1.0)
+        window.backgroundColor = NSColor.windowBackgroundColor
         window.isReleasedWhenClosed = false
         window.delegate = self
 

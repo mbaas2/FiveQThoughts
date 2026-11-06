@@ -18,6 +18,7 @@ const state = {
   maskedCloudKey: "",
   connectionMode: "auto", // "auto" | "local" | "cloud"
   activeBackend: "local", // "local" | "cloud"
+  theme: "auto", // "auto" | "light" | "dark"
   languagePref: "auto", // "auto" | "de" | "en"
   activeLang: "en", // "de" | "en"
   i18n: {},
@@ -42,8 +43,11 @@ const els = {
   instantDeleteText: document.getElementById("instantDeleteText"),
   refreshBtn: document.getElementById("refreshBtn"),
   langSelect: document.getElementById("langSelect"),
+  themeToggleBtn: document.getElementById("themeToggleBtn"),
+  themeToggleIcon: document.getElementById("themeToggleIcon"),
   settingsBtn: document.getElementById("settingsBtn"),
   errorBanner: document.getElementById("errorBanner"),
+  cardsContainer: document.querySelector(".container"),
   cardsGrid: document.getElementById("cardsGrid"),
   // Editor modal
   editorModal: document.getElementById("editorModal"),
@@ -86,6 +90,11 @@ const els = {
   currentCloudKeyHint: document.getElementById("currentCloudKeyHint"),
   settingsCountLabel: document.getElementById("settingsCountLabel"),
   cardCountInput: document.getElementById("cardCountInput"),
+  settingsThemeSelect: document.getElementById("settingsThemeSelect"),
+  settingsThemeLabel: document.getElementById("settingsThemeLabel"),
+  themeAutoOpt: document.getElementById("themeAutoOpt"),
+  themeLightOpt: document.getElementById("themeLightOpt"),
+  themeDarkOpt: document.getElementById("themeDarkOpt"),
   settingsLangLabel: document.getElementById("settingsLangLabel"),
   settingsLangSelect: document.getElementById("settingsLangSelect"),
   settingsLangAutoOpt: document.getElementById("settingsLangAutoOpt"),
@@ -204,6 +213,17 @@ function applyStaticTranslations() {
     els.cloudApiKeyInput.placeholder = t("settings.cloudApiKeyPlaceholder");
   }
   els.settingsCountLabel.textContent = t("settings.cardCountLabel");
+  if (els.settingsThemeLabel) {
+    els.settingsThemeLabel.textContent = t("settings.themeLabel");
+    if (els.themeAutoOpt) els.themeAutoOpt.textContent = t("settings.themeAuto");
+    if (els.themeLightOpt) els.themeLightOpt.textContent = t("settings.themeLight");
+    if (els.themeDarkOpt) els.themeDarkOpt.textContent = t("settings.themeDark");
+  }
+  if (els.themeToggleBtn) {
+    const effective = getEffectiveTheme(state.theme);
+    const suffix = state.theme === "auto" ? ` (Auto: ${effective === "dark" ? "Dark" : "Light"})` : state.theme === "light" ? ` (${t("settings.themeLight") || "Hell"})` : ` (${t("settings.themeDark") || "Dunkel"})`;
+    els.themeToggleBtn.setAttribute("title", `${t("topbar.themeToggleTitle")}${suffix}`);
+  }
   els.settingsLangLabel.textContent = t("settings.languageLabel");
   els.settingsLangAutoOpt.textContent = t("settings.languageAuto");
   els.cancelSettingsBtn.textContent = t("settings.cancelBtn");
@@ -261,6 +281,137 @@ function showToast(msg, isError = false) {
   toastTimer = setTimeout(() => {
     els.toast.classList.add("hidden");
   }, 2600);
+}
+
+/* --- Appearance & Theme Engine --- */
+
+function getEffectiveTheme(theme) {
+  if (theme === "light" || theme === "dark") return theme;
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+function applyTheme(theme, persist = false) {
+  state.theme = theme || "auto";
+  const effective = getEffectiveTheme(state.theme);
+
+  if (state.theme === "auto") {
+    document.documentElement.removeAttribute("data-theme");
+    document.documentElement.setAttribute("data-theme", effective);
+    if (els.themeToggleIcon) els.themeToggleIcon.textContent = "🌗";
+    if (els.themeToggleBtn) {
+      els.themeToggleBtn.title = `${t("topbar.themeToggleTitle")} (Auto: ${effective === "dark" ? "Dark" : "Light"})`;
+    }
+  } else if (state.theme === "light") {
+    document.documentElement.setAttribute("data-theme", "light");
+    if (els.themeToggleIcon) els.themeToggleIcon.textContent = "☀️";
+    if (els.themeToggleBtn) {
+      els.themeToggleBtn.title = `${t("topbar.themeToggleTitle")} (${t("settings.themeLight") || "Hell"})`;
+    }
+  } else {
+    document.documentElement.setAttribute("data-theme", "dark");
+    if (els.themeToggleIcon) els.themeToggleIcon.textContent = "🌙";
+    if (els.themeToggleBtn) {
+      els.themeToggleBtn.title = `${t("topbar.themeToggleTitle")} (${t("settings.themeDark") || "Dunkel"})`;
+    }
+  }
+
+  if (els.settingsThemeSelect) {
+    els.settingsThemeSelect.value = state.theme;
+  }
+
+  try {
+    localStorage.setItem("fiveq_theme", state.theme);
+  } catch (_) {}
+
+  if (persist) {
+    saveThemePreference(state.theme);
+  }
+}
+
+async function saveThemePreference(theme) {
+  try {
+    await fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        theme: theme,
+        themeOnly: true,
+      }),
+    });
+  } catch (_) {}
+}
+
+/* --- Dynamic Full-Space Responsive Grid Layout --- */
+
+function updateGridLayout() {
+  const grid = els.cardsGrid;
+  if (!grid) return;
+  const container = grid.parentElement || els.cardsContainer;
+  if (!container) return;
+
+  const count = state.cards.length;
+  if (count === 0) {
+    grid.style.gridTemplateColumns = "1fr";
+    grid.style.gridTemplateRows = "1fr";
+    grid.style.overflowY = "hidden";
+    return;
+  }
+
+  // Base calculation on the configured card count so all preview slots are allocated
+  const targetCount = Math.max(count, state.cardCount || 5);
+
+  const containerRect = container.getBoundingClientRect();
+  const gap = 12;
+  // Account for container padding (14px * 2 horizontal, 12px * 2 vertical)
+  const availableWidth = Math.max(200, containerRect.width - 28);
+  const availableHeight = Math.max(200, containerRect.height - 24);
+
+  const minCardWidth = 260;
+  const minCardHeight = 200;
+
+  let bestCols = 1;
+  let bestRows = targetCount;
+  let bestScore = Infinity;
+
+  const maxCols = Math.min(targetCount, 8);
+  for (let cols = 1; cols <= maxCols; cols++) {
+    const rows = Math.ceil(targetCount / cols);
+    const cellW = (availableWidth - (cols - 1) * gap) / cols;
+    const cellH = (availableHeight - (rows - 1) * gap) / rows;
+
+    if (cellW < minCardWidth && cols > 1) {
+      continue;
+    }
+
+    // Compare against ideal card aspect ratio (~1.25)
+    const ratio = cellW / Math.max(1, cellH);
+    const idealRatio = 1.25;
+    let score = Math.abs(ratio - idealRatio);
+
+    if (cellH < minCardHeight) {
+      score += 15 + (minCardHeight - cellH) / 10;
+    }
+
+    if (score < bestScore) {
+      bestScore = score;
+      bestCols = cols;
+      bestRows = rows;
+    }
+  }
+
+  const computedCellH = (availableHeight - (bestRows - 1) * gap) / bestRows;
+  if (computedCellH >= minCardHeight) {
+    grid.style.gridTemplateColumns = `repeat(${bestCols}, minmax(0, 1fr))`;
+    grid.style.gridTemplateRows = `repeat(${bestRows}, minmax(0, 1fr))`;
+    grid.style.overflowY = "hidden";
+  } else {
+    // If window is very short, keep equal columns and minimum height, enabling smooth internal scrolling
+    grid.style.gridTemplateColumns = `repeat(${bestCols}, minmax(0, 1fr))`;
+    grid.style.gridTemplateRows = `repeat(${bestRows}, minmax(${minCardHeight}px, 1fr))`;
+    grid.style.overflowY = "auto";
+  }
 }
 
 function showError(msg) {
@@ -723,6 +874,7 @@ function renderCards() {
     empty.className = "empty-state";
     empty.textContent = t("cards.emptyState");
     els.cardsGrid.appendChild(empty);
+    updateGridLayout();
     return;
   }
 
@@ -951,6 +1103,8 @@ function renderCards() {
 
     els.cardsGrid.appendChild(cardEl);
   });
+
+  updateGridLayout();
 }
 
 function escapeHtml(str) {
@@ -988,6 +1142,10 @@ async function loadConfig() {
   if (els.connectionModeSelect) {
     els.connectionModeSelect.value = state.connectionMode;
   }
+
+  const savedTheme = localStorage.getItem("fiveq_theme");
+  const themePref = cfg.theme || savedTheme || "auto";
+  applyTheme(themePref, false);
 
   const savedLang = localStorage.getItem("fiveq_lang");
   const pref = cfg.language && cfg.language !== "auto" ? cfg.language : savedLang || "auto";
@@ -1145,6 +1303,7 @@ els.cancelSettingsBtn.addEventListener("click", () => els.settingsModal.classLis
 els.settingsForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const selectedLang = els.settingsLangSelect ? els.settingsLangSelect.value : state.languagePref;
+  const selectedTheme = els.settingsThemeSelect ? els.settingsThemeSelect.value : state.theme;
   const selectedMode = els.connectionModeSelect ? els.connectionModeSelect.value : state.connectionMode;
   const payload = {
     baseUrl: els.baseUrlInput.value.trim(),
@@ -1153,6 +1312,7 @@ els.settingsForm.addEventListener("submit", async (e) => {
     connectionMode: selectedMode,
     cardCount: parseInt(els.cardCountInput.value, 10) || 5,
     language: selectedLang,
+    theme: selectedTheme,
   };
   try {
     const resp = await fetch("/api/config", {
@@ -1168,11 +1328,13 @@ els.settingsForm.addEventListener("submit", async (e) => {
     if (data.activeBackend) {
       state.activeBackend = data.activeBackend;
     }
+    applyTheme(data.theme || selectedTheme, false);
     localStorage.setItem("fiveq_lang", selectedLang);
     await loadTranslations(selectedLang);
     els.settingsModal.classList.add("hidden");
     showToast(t("toasts.settingsSaved"));
     await loadThoughts(true);
+    updateGridLayout();
   } catch (err) {
     showToast(t("toasts.genericError", { error: err.message }), true);
   }
@@ -1214,9 +1376,49 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// Theme toggle button
+if (els.themeToggleBtn) {
+  els.themeToggleBtn.addEventListener("click", () => {
+    let nextTheme = "auto";
+    if (state.theme === "auto") nextTheme = "light";
+    else if (state.theme === "light") nextTheme = "dark";
+    else nextTheme = "auto";
+    applyTheme(nextTheme, true);
+    const themeName =
+      nextTheme === "auto"
+        ? t("settings.themeAuto") || "Auto"
+        : nextTheme === "light"
+        ? t("settings.themeLight") || "Hell"
+        : t("settings.themeDark") || "Dunkel";
+    showToast(`${t("settings.themeLabel") || "Design"}: ${themeName}`);
+  });
+}
+
+// OS system appearance listener
+if (window.matchMedia) {
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (state.theme === "auto") {
+      applyTheme("auto", false);
+    }
+  });
+}
+
+// Window resize & ResizeObserver for dynamic full-space grid tiles
+window.addEventListener("resize", () => {
+  updateGridLayout();
+});
+
+if (window.ResizeObserver && els.cardsContainer) {
+  const resizeObserver = new ResizeObserver(() => {
+    updateGridLayout();
+  });
+  resizeObserver.observe(els.cardsContainer);
+}
+
 // Initialize
 (async function init() {
   await loadConfig();
   await loadThoughts(true);
+  updateGridLayout();
   startPolling();
 })();

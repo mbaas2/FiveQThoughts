@@ -13,7 +13,7 @@
       <div>
         <div class="brand-title-row">
           <h1>FiveQThoughts</h1>
-          <span id="versionBadge" class="version-badge">v1.4.0</span>
+          <span id="versionBadge" class="version-badge">v1.5.0</span>
           <span id="backendBadge" class="backend-badge" title="">💻 Lokal</span>
         </div>
         <span id="statusSubtitle" class="subtitle">Verbinde mit TheBrain API…</span>
@@ -44,6 +44,10 @@
         <option value="de">🇩🇪 DE</option>
         <option value="en">🇬🇧 EN</option>
       </select>
+
+      <button id="themeToggleBtn" class="btn btn-ghost" title="Erscheinungsbild wechseln (Auto / Hell / Dunkel)" aria-label="Theme">
+        <span id="themeToggleIcon">🌗</span>
+      </button>
 
       <button id="settingsBtn" class="btn btn-ghost" title="API-URL & Bearer Token konfigurieren">
         ⚙ API
@@ -155,6 +159,15 @@
         <div class="field">
           <label for="cardCountInput" id="settingsCountLabel">Anzahl angezeigter Karten</label>
           <input type="number" id="cardCountInput" min="1" max="20" value="5" required />
+        </div>
+
+        <div class="field">
+          <label for="settingsThemeSelect" id="settingsThemeLabel">Erscheinungsbild / Design</label>
+          <select id="settingsThemeSelect">
+            <option value="auto" id="themeAutoOpt">Automatisch (System)</option>
+            <option value="light" id="themeLightOpt">Hell (Light Mode)</option>
+            <option value="dark" id="themeDarkOpt">Dunkel (Dark Mode)</option>
+          </select>
         </div>
 
         <div class="field">
