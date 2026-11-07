@@ -19,7 +19,7 @@ Kompakte, plattformübergreifende App (**macOS & Windows**) zum schnellen Sichte
   - Wahlweise mit Sicherheitsabfrage (`Löschen? Ja / Nein`) oder per Schalter **„Sofort löschen“** mit einem Klick.
 - **🖥️ Eigenständige Desktop-App & Systemweiter Shortcut (`⌃⌥Q` / `Ctrl+Alt+Q`)**:
   - **macOS (`FiveQThoughts.app`)**: Kompiliert beim ersten Start aus `native/macos_host.swift` automatisch eine leichtgewichtige native macOS-App (System-`WKWebView`, ~110 KB Binary). Erscheint als **eigenständige App mit Blitz-Icon in `⌘+Tab` und im Dock** sowie als Menüleistensymbol **`⚡5Q`**.
-  - **Windows (`FiveQThoughts.exe`)**: Kompiliert beim ersten Start aus `native/windows_host.cs` mit dem in Windows vorinstallierten .NET-Compiler (`csc.exe`) automatisch eine eigenständige `FiveQThoughts.exe` inklusive **System-Tray-Icon** (Blitz-Symbol neben der Windows-Uhr) und eigenem App-Fenster.
+  - **Windows (`FiveQThoughts.exe`, installierbar)**: Nativer Host aus `native/windows/` (WinForms + eingebettetes **WebView2**, das Windows-Gegenstück zu `WKWebView`). Eigenes Fenster mit Blitz-Icon in Taskleiste und `Alt+Tab`, **System-Tray-Icon** (Linksklick = ein-/ausblenden, Rechtsklick = Menü mit *Aktualisieren*, *Im Browser öffnen*, *Mit Windows starten*, *Beenden*), Schließen per `X`/`Ctrl+W` blendet nur ins Tray aus, ein zweiter Start holt das laufende Fenster nach vorn. Der **Installer** (`FiveQThoughts-Setup-x.y.z.exe`) bringt ein gebündeltes Python-Backend mit – auf dem Zielrechner wird **kein Python** benötigt.
   - **Globaler Shortcut**: Mit **`⌃⌥Q`** (`Ctrl+Option+Q` auf macOS) bzw. **`Ctrl+Alt+Q`** (auf Windows) lässt sich das Fenster jederzeit systemweit aus jeder anderen Anwendung heraus in den Vordergrund holen oder wieder ausblenden.
   - **☁️ Automatischer Cloud-Fallback (TheBrain Web-API `api.bra.in`)**: Funktioniert auch, wenn die lokale Desktop-App gerade nicht geöffnet ist! Standardmäßig wird die blitzschnelle lokale Instanz (`http://localhost:11524`) genutzt. Ist TheBrain lokal nicht erreichbar, schaltet FiveQThoughts vollautomatisch auf die offizielle Cloud-API (`https://api.bra.in/v2/...`) um (einstellbar unter `⚙ API` mit Cloud-Key von [app.thebrain.com/api-keys](https://app.thebrain.com/api-keys)). Ein Badge in der Kopfzeile zeigt den aktuellen Status (`💻 Lokal` / `☁️ Cloud`).
   - **🌓 Light & Dark Mode (Hell / Dunkel)**: Unterstützt sowohl ein elegantes, kontrastreiches helles Design (Light Mode) als auch ein augenschonendes dunkles Design (Dark Mode). Erkennt die macOS/Windows-Systemeinstellung automatisch oder lässt sich per Schnellschalter `🌗` in der Kopfzeile sowie im Einstellungsmenü jederzeit manuell auf *Automatisch*, *Hell* oder *Dunkel* umschalten.
@@ -43,8 +43,27 @@ Per Doppelklick auf `run_mac.command` im Finder oder im Terminal:
 python3 app.py
 ```
 
-### Windows
-Per Doppelklick auf `run_windows.bat` oder in PowerShell / CMD:
+### Windows – installierte App (empfohlen)
+`dist\FiveQThoughts-Setup-<version>.exe` ausführen. Installiert standardmäßig nur für den aktuellen Benutzer (keine Admin-Rechte nötig) nach `%LOCALAPPDATA%\Programs\FiveQThoughts`, mit Startmenü-Eintrag, optionalem Desktop-Symbol und optionalem Autostart (startet unsichtbar im Tray). Deinstallation über *Einstellungen → Apps*.
+
+Alternativ ohne Installation: `dist\FiveQThoughts-<version>-win-x64-portable.zip` entpacken und `FiveQThoughts.exe` starten.
+
+Daten der installierten App:
+- Konfiguration inkl. API-Keys: `%APPDATA%\FiveQThoughts\config.local.json` (bleibt bei Deinstallation erhalten)
+- WebView2-Cache, Fensterposition, `backend.log`: `%LOCALAPPDATA%\FiveQThoughts`
+
+Voraussetzung ist nur die **Microsoft Edge WebView2 Runtime** (in Windows 11 enthalten; fehlt sie, bietet die App den Download an).
+
+### Windows – aus dem Quellcode
+Per Doppelklick auf `run_windows.bat` (baut beim ersten Start den Host mit dem .NET SDK und startet ihn mit `app.py` als Backend) oder in PowerShell / CMD:
 ```powershell
 python app.py
 ```
+Ohne .NET SDK öffnet `app.py` die Oberfläche als Edge/Chrome-App-Fenster (Shortcut `Ctrl+Alt+Q` funktioniert auch dann).
+
+### Windows-Installer bauen
+Benötigt auf dem Build-Rechner: .NET SDK 8+, Python 3.9+ und [Inno Setup 6](https://jrsoftware.org/isdl.php).
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
+```
+Ergebnis in `dist\`: `FiveQThoughts-Setup-<version>.exe` und die portable ZIP. Das Skript baut den Host (`native\windows`), bündelt `app.py` + `static\` per PyInstaller (eigenes venv unter `build\.venv`) und erstellt den Installer aus `packaging\windows\FiveQThoughts.iss`. Die Version kommt aus der Datei `VERSION`. Das App-Icon (`native\windows\FiveQThoughts.ico`) lässt sich mit `native\windows\make_icon.ps1` neu erzeugen.

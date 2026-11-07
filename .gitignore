@@ -17,3 +17,9 @@ venv/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Windows build output (native/windows host, PyInstaller backend, installer)
+native/windows/bin/
+native/windows/obj/
+build/
+dist/

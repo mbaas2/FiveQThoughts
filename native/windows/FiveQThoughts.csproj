@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Native Windows host for FiveQThoughts (analog to native/macos_host.swift):
+    WinForms window with embedded WebView2 (Edge/Chromium), tray icon, global hotkey Ctrl+Alt+Q.
+    Targets .NET Framework 4.8 (preinstalled on Windows 10/11) – no extra runtime required.
+    Build: dotnet publish -c Release   (or ..\..\windows\build.ps1 for the complete installer)
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <AssemblyName>FiveQThoughts</AssemblyName>
+    <RootNamespace>FiveQThoughtsHost</RootNamespace>
+    <ApplicationIcon>FiveQThoughts.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.5.0</Version>
+    <Product>FiveQThoughts</Product>
+    <Company>FiveQThoughts</Company>
+    <Description>FiveQThoughts – TheBrain Quick Thoughts</Description>
+    <Copyright>FiveQThoughts</Copyright>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <DebugType>none</DebugType>
+    <SatelliteResourceLanguages>en;de</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="FiveQThoughts.ico" LogicalName="FiveQThoughts.ico" />
+  </ItemGroup>
+
+</Project>

@@ -30,11 +30,30 @@ from pathlib import Path
 from typing import Optional
 
 APP_DIR = Path(__file__).resolve().parent
-STATIC_DIR = APP_DIR / "static"
-VERSION_FILE = APP_DIR / "VERSION"
-LOCAL_CONFIG_PATH = APP_DIR / "config.local.json"
+# When bundled with PyInstaller (Windows installer), resources live in the extracted bundle
+# and the install directory is not writable -> keep config in the per-user app data folder.
+IS_FROZEN = bool(getattr(sys, "frozen", False))
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR)) if IS_FROZEN else APP_DIR
+STATIC_DIR = RESOURCE_DIR / "static"
+VERSION_FILE = RESOURCE_DIR / "VERSION"
+
+
+def _user_data_dir() -> Path:
+    if platform.system() == "Windows":
+        base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+        return Path(base) / "FiveQThoughts"
+    if platform.system() == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "FiveQThoughts"
+    return Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")) / "FiveQThoughts"
+
+
+CONFIG_DIR = _user_data_dir() if IS_FROZEN else APP_DIR
+LOCAL_CONFIG_PATH = CONFIG_DIR / "config.local.json"
 DEFAULT_CONFIG_PATH = APP_DIR / "config.json"
 USER_CONFIG_PATH = Path.home() / ".fiveqthoughts.json"
+
+# Hide console windows of helper processes (PowerShell clipboard calls) on Windows
+SUBPROCESS_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) if platform.system() == "Windows" else 0
 
 DEFAULT_BASE_URL = "http://localhost:11524"
 DEFAULT_CLOUD_URL = "https://api.bra.in"
@@ -151,6 +170,7 @@ class AppConfig:
             "language": self.language,
             "theme": self.theme,
         }
+        LOCAL_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         LOCAL_CONFIG_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     @staticmethod
@@ -593,6 +613,7 @@ def copy_text_to_os_clipboard(text: str) -> None:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            creationflags=SUBPROCESS_FLAGS,
         )
         _, err = proc.communicate(input=text.encode("utf-8"))
         if proc.returncode != 0:
@@ -643,6 +664,7 @@ def copy_image_bytes_to_os_clipboard(image_bytes: bytes, suffix: str = ".png") -
                 ["powershell", "-NoProfile", "-NonInteractive", "-STA", "-Command", ps_cmd],
                 capture_output=True,
                 text=True,
+                creationflags=SUBPROCESS_FLAGS,
             )
             if res.returncode != 0:
                 raise RuntimeError(f"PowerShell SetImage failed: {res.stderr.strip()}")
@@ -704,6 +726,7 @@ def read_image_from_os_clipboard() -> tuple[bytes, str]:
                 ["powershell", "-NoProfile", "-NonInteractive", "-STA", "-Command", ps_cmd],
                 capture_output=True,
                 text=True,
+                creationflags=SUBPROCESS_FLAGS,
             )
             if "OK" not in res.stdout or not png_path.is_file():
                 raise ValueError("Keine Grafik in der Windows-Zwischenablage gefunden.")
@@ -1054,8 +1077,9 @@ MACOS_APP_BUNDLE = APP_DIR / "FiveQThoughts.app"
 MACOS_APP_BINARY = MACOS_APP_BUNDLE / "Contents" / "MacOS" / "FiveQThoughts"
 MACOS_INFO_PLIST = MACOS_APP_BUNDLE / "Contents" / "Info.plist"
 
-WINDOWS_CS_SOURCE = APP_DIR / "native" / "windows_host.cs"
-WINDOWS_EXE_BINARY = APP_DIR / "FiveQThoughts.exe"
+WINDOWS_HOST_DIR = APP_DIR / "native" / "windows"
+WINDOWS_HOST_PROJECT = WINDOWS_HOST_DIR / "FiveQThoughts.csproj"
+WINDOWS_EXE_BINARY = WINDOWS_HOST_DIR / "bin" / "Release" / "FiveQThoughts.exe"
 
 
 def get_macos_plist_content() -> str:
@@ -1130,46 +1154,37 @@ def ensure_macos_native_app() -> Optional[Path]:
 
 
 def ensure_windows_native_app() -> Optional[Path]:
-    """Compile native/windows_host.cs into FiveQThoughts.exe using built-in Windows .NET csc.exe if needed."""
-    if platform.system() != "Windows" or not WINDOWS_CS_SOURCE.is_file():
+    """
+    Build the native Windows host (native/windows: WinForms + WebView2, tray icon, Ctrl+Alt+Q)
+    with the .NET SDK (`dotnet build`) if it is missing or outdated.
+    The complete installer is built with windows/build.ps1.
+    """
+    if platform.system() != "Windows" or not WINDOWS_HOST_PROJECT.is_file():
         return None
 
+    sources = [p for p in WINDOWS_HOST_DIR.iterdir() if p.suffix.lower() in (".cs", ".csproj", ".manifest", ".ico")]
     needs_build = not WINDOWS_EXE_BINARY.is_file()
     if not needs_build:
         try:
-            needs_build = WINDOWS_CS_SOURCE.stat().st_mtime > WINDOWS_EXE_BINARY.stat().st_mtime
+            exe_mtime = WINDOWS_EXE_BINARY.stat().st_mtime
+            needs_build = any(p.stat().st_mtime > exe_mtime for p in sources)
         except OSError:
             needs_build = True
 
     if needs_build:
-        win_dir = os.environ.get("WINDIR", r"C:\Windows")
-        csc_candidates = [
-            os.path.join(win_dir, "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe"),
-            os.path.join(win_dir, "Microsoft.NET", "Framework", "v4.0.30319", "csc.exe"),
-        ]
-        csc_path = next((p for p in csc_candidates if os.path.isfile(p)), None)
-        if not csc_path:
-            return None
+        dotnet = shutil.which("dotnet")
+        if not dotnet:
+            print("Hinweis: .NET SDK (dotnet) nicht gefunden – native Windows-App kann nicht gebaut werden.")
+            return WINDOWS_EXE_BINARY if WINDOWS_EXE_BINARY.is_file() else None
 
-        print(f"Kompiliere native Windows-App (FiveQThoughts.exe v{APP_VERSION})...")
+        print(f"Baue native Windows-App (FiveQThoughts.exe v{APP_VERSION})...")
         proc = subprocess.run(
-            [
-                csc_path,
-                "/nologo",
-                "/target:winexe",
-                "/optimize+",
-                f"/out:{WINDOWS_EXE_BINARY}",
-                "/r:System.dll",
-                "/r:System.Drawing.dll",
-                "/r:System.Windows.Forms.dll",
-                str(WINDOWS_CS_SOURCE),
-            ],
+            [dotnet, "build", str(WINDOWS_HOST_PROJECT), "-c", "Release", "-nologo", "-v", "q", f"-p:Version={APP_VERSION}"],
             capture_output=True,
             text=True,
         )
         if proc.returncode != 0:
-            print(f"Warnung: Native Windows-App konnte nicht kompiliert werden: {proc.stdout} {proc.stderr}")
-            return None
+            print(f"Warnung: Native Windows-App konnte nicht gebaut werden: {proc.stdout} {proc.stderr}")
 
     return WINDOWS_EXE_BINARY if WINDOWS_EXE_BINARY.is_file() else None
 
