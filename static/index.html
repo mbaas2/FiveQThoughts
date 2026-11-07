@@ -154,6 +154,12 @@
           <label for="cloudApiKeyInput" id="settingsCloudKeyLabel">Cloud / Web API Key (für Fallback auf api.bra.in)</label>
           <input type="password" id="cloudApiKeyInput" placeholder="Neuen Cloud-Key eingeben (leer lassen zum Beibehalten)" autocomplete="off" />
           <small id="currentCloudKeyHint">Optional für Cloud-Fallback. Erstellen unter <a href="https://app.thebrain.com/api-keys" target="_blank" rel="noopener noreferrer">app.thebrain.com/api-keys</a>.</small>
+          <div class="share-actions" style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+            <button type="button" id="copyForIosBtn" class="action-btn" style="padding: 4px 10px; font-size: 11px; border-radius: 6px; cursor: pointer;">📱 Für iPhone kopieren (Handoff)</button>
+            <button type="button" id="showQrBtn" class="action-btn" style="padding: 4px 10px; font-size: 11px; border-radius: 6px; cursor: pointer;">📷 QR-Code anzeigen</button>
+            <button type="button" id="pasteFromIosBtn" class="action-btn" style="padding: 4px 10px; font-size: 11px; border-radius: 6px; cursor: pointer;">📥 Vom iPhone einfügen</button>
+          </div>
+          <div id="shareStatusHint" style="margin-top: 6px; font-size: 11px; color: #10b981; display: none;"></div>
         </div>
 
         <div class="field">
@@ -199,6 +205,27 @@
       </div>
       <div class="lightbox-img-wrap">
         <img id="lightboxImg" src="" alt="" />
+      </div>
+    </div>
+  </div>
+
+  <!-- QR Code Share Modal -->
+  <div id="qrModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" style="z-index: 2500;">
+    <div class="modal-card" style="max-width: 360px; text-align: center;">
+      <div class="modal-header">
+        <h2 style="font-size: 16px; margin: 0;">📱 Für iPhone & Apple Watch</h2>
+        <button id="closeQrModalBtn" type="button" class="icon-btn" aria-label="Schließen">✕</button>
+      </div>
+      <div style="padding: 16px;">
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
+          Scanne diesen QR-Code mit der iPhone-Kamera. FiveQ öffnet sich und synchronisiert den Schlüssel automatisch auf deine Apple Watch.
+        </p>
+        <div style="background: white; padding: 12px; border-radius: 12px; display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+          <img id="qrImage" src="" alt="FiveQ Setup QR Code" style="width: 200px; height: 200px; display: block;" />
+        </div>
+        <div style="margin-top: 14px;">
+          <button id="copySetupUrlBtn" type="button" class="btn btn-secondary btn-sm">Link kopieren</button>
+        </div>
       </div>
     </div>
   </div>

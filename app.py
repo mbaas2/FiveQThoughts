@@ -191,6 +191,48 @@ class AppConfig:
 CONFIG = AppConfig()
 
 
+def generate_qr_png_bytes(text: str) -> Optional[bytes]:
+    if platform.system() == "Darwin":
+        qrgen_bin = RESOURCE_DIR / "packaging" / "qrgen"
+        if qrgen_bin.is_file() and os.access(qrgen_bin, os.X_OK):
+            try:
+                proc = subprocess.run([str(qrgen_bin), text], capture_output=True, timeout=2)
+                if proc.returncode == 0 and proc.stdout:
+                    return proc.stdout
+            except Exception as exc:
+                print(f"[WARN] native qrgen failed: {exc}", file=sys.stderr)
+
+        # Fallback to swift -e
+        escaped_text = text.replace("\\", "\\\\").replace('"', '\\"')
+        swift_code = f'''
+import Foundation
+import CoreImage
+import AppKit
+
+let text = "{escaped_text}"
+let filter = CIFilter(name: "CIQRCodeGenerator")!
+filter.setValue(text.data(using: .utf8), forKey: "inputMessage")
+filter.setValue("M", forKey: "inputCorrectionLevel")
+if let ciImage = filter.outputImage {{
+    let rep = NSCIImageRep(ciImage: ciImage.transformed(by: CGAffineTransform(scaleX: 8, y: 8)))
+    let nsImage = NSImage(size: rep.size)
+    nsImage.addRepresentation(rep)
+    if let tiff = nsImage.tiffRepresentation,
+       let bitmap = NSBitmapImageRep(data: tiff),
+       let png = bitmap.representation(using: .png, properties: [:]) {{
+        FileHandle.standardOutput.write(png)
+    }}
+}}
+'''
+        try:
+            proc = subprocess.run(["swift", "-e", swift_code], capture_output=True, timeout=10)
+            if proc.returncode == 0 and proc.stdout:
+                return proc.stdout
+        except Exception as exc:
+            print(f"[WARN] QR generation fallback failed: {exc}", file=sys.stderr)
+    return None
+
+
 class TheBrainApiError(Exception):
     def __init__(self, status: int, message: str, details=None):
         super().__init__(message)
@@ -762,6 +804,19 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
         qs = urllib.parse.parse_qs(parsed.query)
 
         try:
+            if path == "/api/share/copy":
+                key = CONFIG.cloud_api_key or CONFIG.api_key
+                if not key:
+                    self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Kein API-Schlüssel hinterlegt"})
+                    return
+                try:
+                    if platform.system() == "Darwin":
+                        subprocess.run(["pbcopy"], input=key.encode("utf-8"), check=True)
+                    self._send_json(HTTPStatus.OK, {"ok": True, "message": "In macOS Zwischenablage kopiert (Handoff aktiv)"})
+                except Exception as exc:
+                    self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+                return
+
             if path == "/api/config":
                 self._send_json(
                     HTTPStatus.OK,
@@ -870,6 +925,36 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(raw)
                 return
 
+            if path == "/api/share/qr":
+                key = qs.get("key", [""])[0] or CONFIG.cloud_api_key or CONFIG.api_key
+                if not key:
+                    self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Kein API-Schlüssel hinterlegt"})
+                    return
+                setup_url = f"fiveq://setup?key={key}"
+                png_bytes = generate_qr_png_bytes(setup_url)
+                if not png_bytes:
+                    self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "QR-Code konnte nicht erzeugt werden"})
+                    return
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(png_bytes)))
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                self.wfile.write(png_bytes)
+                return
+
+            if path == "/api/share/info":
+                key = CONFIG.cloud_api_key or CONFIG.api_key
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "hasKey": bool(key),
+                        "setupUrl": f"fiveq://setup?key={key}" if key else "",
+                        "maskedKey": CONFIG.masked_cloud_key() or CONFIG.masked_key(),
+                    },
+                )
+                return
+
             if path == "/" or path == "/index.html":
                 self._serve_static(STATIC_DIR / "index.html", "text/html; charset=utf-8")
                 return
@@ -900,6 +985,19 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
 
         try:
             body = self._read_json_body()
+
+            if path == "/api/share/copy":
+                key = CONFIG.cloud_api_key or CONFIG.api_key
+                if not key:
+                    self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Kein API-Schlüssel hinterlegt"})
+                    return
+                try:
+                    if platform.system() == "Darwin":
+                        subprocess.run(["pbcopy"], input=key.encode("utf-8"), check=True)
+                    self._send_json(HTTPStatus.OK, {"ok": True, "message": "In macOS Zwischenablage kopiert (Handoff aktiv)"})
+                except Exception as exc:
+                    self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+                return
 
             if path == "/api/config":
                 base_url = body.get("baseUrl") or CONFIG.base_url

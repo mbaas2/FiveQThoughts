@@ -99,6 +99,15 @@ const els = {
   settingsLangSelect: document.getElementById("settingsLangSelect"),
   settingsLangAutoOpt: document.getElementById("settingsLangAutoOpt"),
   currentKeyHint: document.getElementById("currentKeyHint"),
+  // Share & Handoff
+  copyForIosBtn: document.getElementById("copyForIosBtn"),
+  showQrBtn: document.getElementById("showQrBtn"),
+  pasteFromIosBtn: document.getElementById("pasteFromIosBtn"),
+  shareStatusHint: document.getElementById("shareStatusHint"),
+  qrModal: document.getElementById("qrModal"),
+  closeQrModalBtn: document.getElementById("closeQrModalBtn"),
+  qrImage: document.getElementById("qrImage"),
+  copySetupUrlBtn: document.getElementById("copySetupUrlBtn"),
   // Lightbox
   lightboxModal: document.getElementById("lightboxModal"),
   lightboxTitle: document.getElementById("lightboxTitle"),
@@ -1339,6 +1348,90 @@ els.settingsForm.addEventListener("submit", async (e) => {
     showToast(t("toasts.genericError", { error: err.message }), true);
   }
 });
+
+// Key Sharing & Handoff
+let currentSetupUrl = "";
+
+if (els.copyForIosBtn) {
+  els.copyForIosBtn.addEventListener("click", async () => {
+    try {
+      const resp = await fetch("/api/share/copy", { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "Fehler beim Kopieren");
+      if (els.shareStatusHint) {
+        els.shareStatusHint.textContent = "✓ In macOS-Zwischenablage kopiert! Tippe in FiveQ am iPhone auf 'Vom Mac einfügen'.";
+        els.shareStatusHint.style.display = "block";
+        setTimeout(() => { if (els.shareStatusHint) els.shareStatusHint.style.display = "none"; }, 5000);
+      }
+      showToast("Schlüssel kopiert (Handoff bereit)");
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  });
+}
+
+if (els.showQrBtn) {
+  els.showQrBtn.addEventListener("click", async () => {
+    try {
+      const resp = await fetch("/api/share/info");
+      const info = await resp.json();
+      if (!info.hasKey) {
+        showToast("Bitte zuerst einen Cloud-Key eingeben und speichern", true);
+        return;
+      }
+      currentSetupUrl = info.setupUrl;
+      els.qrImage.src = `/api/share/qr?t=${Date.now()}`;
+      els.qrModal.classList.remove("hidden");
+    } catch (err) {
+      showToast("Konnte QR-Code nicht laden", true);
+    }
+  });
+}
+
+if (els.closeQrModalBtn) {
+  els.closeQrModalBtn.addEventListener("click", () => els.qrModal.classList.add("hidden"));
+}
+if (els.qrModal) {
+  els.qrModal.addEventListener("click", (e) => {
+    if (e.target === els.qrModal) els.qrModal.classList.add("hidden");
+  });
+}
+
+if (els.copySetupUrlBtn) {
+  els.copySetupUrlBtn.addEventListener("click", () => {
+    if (currentSetupUrl) {
+      navigator.clipboard.writeText(currentSetupUrl);
+      showToast("Setup-Link kopiert!");
+    }
+  });
+}
+
+if (els.pasteFromIosBtn) {
+  els.pasteFromIosBtn.addEventListener("click", async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const trimmed = (text || "").trim();
+      if (!trimmed) {
+        showToast("Zwischenablage ist leer", true);
+        return;
+      }
+      // If it is a deep link, extract the key
+      let key = trimmed;
+      if (trimmed.startsWith("fiveq://")) {
+        try {
+          const u = new URL(trimmed);
+          key = u.searchParams.get("key") || trimmed;
+        } catch (_) {}
+      }
+      if (els.cloudApiKeyInput) {
+        els.cloudApiKeyInput.value = key;
+        showToast("Schlüssel aus Zwischenablage eingefügt!");
+      }
+    } catch (err) {
+      showToast("Konnte nicht aus Zwischenablage lesen (Berechtigung fehlt)", true);
+    }
+  });
+}
 
 els.closeLightboxBtn.addEventListener("click", closeLightbox);
 els.lightboxModal.addEventListener("click", (e) => {

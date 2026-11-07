@@ -6,6 +6,7 @@ config.json
 # Compiled native app binaries (built automatically from native/macos_host.swift & native/windows_host.cs)
 FiveQThoughts.app/
 FiveQThoughts.exe
+packaging/qrgen
 
 # Python
 __pycache__/
