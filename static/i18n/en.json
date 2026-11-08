@@ -124,5 +124,12 @@
     "autoSynced": "⚡ Quick Thoughts automatically updated",
     "settingsSaved": "API settings saved!",
     "genericError": "Error: {error}"
+  },
+  "about": {
+    "title": "About FiveQThoughts",
+    "version": "Version",
+    "author": "Author",
+    "sourceCode": "Source code on GitHub",
+    "coffee": "☕ Buy me a coffee if you like this app"
   }
 }

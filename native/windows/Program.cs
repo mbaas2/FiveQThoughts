@@ -387,6 +387,14 @@ namespace FiveQThoughtsHost
             try { Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true }); } catch { }
         }
 
+        private async void ShowAbout()
+        {
+            ShowAndActivate();
+            if (!webViewReady) return;
+            try { await webView.CoreWebView2.ExecuteScriptAsync("window.showAbout && window.showAbout()"); }
+            catch { }
+        }
+
         private void ReloadPage()
         {
             if (!webViewReady) return;
@@ -665,6 +673,10 @@ namespace FiveQThoughtsHost
             menu.Items.Add(logItem);
 
             menu.Items.Add(new ToolStripSeparator());
+
+            var aboutItem = new ToolStripMenuItem(L.T("Über FiveQThoughts", "About FiveQThoughts"));
+            aboutItem.Click += (s, e) => ShowAbout();
+            menu.Items.Add(aboutItem);
 
             var exitItem = new ToolStripMenuItem(L.T("Beenden", "Quit"));
             exitItem.Click += (s, e) => QuitApp();

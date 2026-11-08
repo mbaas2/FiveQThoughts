@@ -74,6 +74,27 @@ def get_app_version() -> str:
 APP_VERSION = get_app_version()
 
 
+def get_app_version_date() -> str:
+    """Release date (YYYY-MM-DD): last git commit touching VERSION, else the file's mtime."""
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%cs", "--", "VERSION"],
+            cwd=str(RESOURCE_DIR), capture_output=True, text=True, timeout=3,
+            creationflags=SUBPROCESS_FLAGS,
+        ).stdout.strip()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", out):
+            return out
+    except Exception:
+        pass
+    try:
+        return datetime.date.fromtimestamp(VERSION_FILE.stat().st_mtime).isoformat()
+    except Exception:
+        return ""
+
+
+APP_VERSION_DATE = get_app_version_date()
+
+
 class AppConfig:
     def __init__(self):
         self.base_url: str = DEFAULT_BASE_URL
@@ -834,6 +855,7 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                         "theme": CONFIG.theme,
                         "platform": platform.system(),
                         "version": APP_VERSION,
+                        "versionDate": APP_VERSION_DATE,
                     },
                 )
                 return

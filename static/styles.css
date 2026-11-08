@@ -1033,3 +1033,64 @@ body {
   border-radius: var(--radius);
   color: var(--text-muted);
 }
+
+/* About dialog */
+.about-trigger {
+  cursor: pointer;
+}
+
+button.bolt-icon {
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+
+.about-card {
+  max-width: 360px;
+}
+
+.about-body {
+  text-align: center;
+}
+
+.about-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  font-size: 30px;
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
+  margin: 4px auto 10px;
+}
+
+.about-app-name {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.about-version {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.about-author {
+  font-size: 13px;
+  margin: 14px 0;
+  line-height: 1.5;
+}
+
+.about-links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.about-body .modal-footer {
+  justify-content: center;
+}

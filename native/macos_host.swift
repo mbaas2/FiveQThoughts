@@ -228,6 +228,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         mainMenu.addItem(appMenuItem)
         let appMenu = NSMenu()
         appMenuItem.submenu = appMenu
+        appMenu.addItem(withTitle: "Über FiveQThoughts", action: #selector(showAboutAction), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "FiveQThoughts ein-/ausblenden", action: #selector(toggleWindowAction), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "FiveQThoughts ausblenden", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
@@ -275,6 +277,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         menu.addItem(reloadItem)
 
         menu.addItem(NSMenuItem.separator())
+        let aboutItem = NSMenuItem(title: "Über FiveQThoughts", action: #selector(showAboutAction), keyEquivalent: "")
+        aboutItem.target = self
+        menu.addItem(aboutItem)
         menu.addItem(NSMenuItem(title: "Beenden", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
     }
@@ -328,6 +333,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc func showAboutAction() {
+        showWindowAndActivate()
+        webView.evaluateJavaScript("window.showAbout && window.showAbout()", completionHandler: nil)
     }
 
     @objc func reloadWebView() {

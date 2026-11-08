@@ -1,5 +1,9 @@
 /* FiveQThoughts Frontend Application */
 
+// About dialog: "Buy me a coffee" is only offered on Windows (not distributed via an app store).
+// Leave empty to hide the link.
+const COFFEE_URL = "https://buymeacoffee.com/mbaas";
+
 const state = {
   cards: [],
   allSummaries: [],
@@ -12,6 +16,8 @@ const state = {
   lightboxImage: null,
   // Config & i18n
   version: "1.4.0",
+  versionDate: "",
+  platform: "",
   hasApiKey: false,
   maskedKey: "",
   hasCloudApiKey: false,
@@ -31,6 +37,16 @@ const state = {
 
 const els = {
   versionBadge: document.getElementById("versionBadge"),
+  aboutBtn: document.getElementById("aboutBtn"),
+  brandTitle: document.getElementById("brandTitle"),
+  aboutModal: document.getElementById("aboutModal"),
+  aboutTitle: document.getElementById("aboutTitle"),
+  aboutVersion: document.getElementById("aboutVersion"),
+  aboutAuthorLabel: document.getElementById("aboutAuthorLabel"),
+  aboutRepoLink: document.getElementById("aboutRepoLink"),
+  aboutCoffeeLink: document.getElementById("aboutCoffeeLink"),
+  closeAboutBtn: document.getElementById("closeAboutBtn"),
+  okAboutBtn: document.getElementById("okAboutBtn"),
   backendBadge: document.getElementById("backendBadge"),
   statusSubtitle: document.getElementById("statusSubtitle"),
   newThoughtBtn: document.getElementById("newThoughtBtn"),
@@ -203,6 +219,17 @@ function applyStaticTranslations() {
   els.pasteInlineLabelWrap.title = t("editor.pasteInlineTitle");
   els.cancelEditorBtn.textContent = t("editor.cancelBtn");
   els.saveEditorBtn.textContent = t("editor.saveBtn");
+
+  // About modal
+  els.aboutBtn.title = t("about.title");
+  els.aboutBtn.setAttribute("aria-label", t("about.title"));
+  els.brandTitle.title = t("about.title");
+  els.aboutTitle.textContent = t("about.title");
+  els.aboutAuthorLabel.textContent = t("about.author");
+  els.aboutRepoLink.textContent = t("about.sourceCode");
+  els.aboutCoffeeLink.textContent = t("about.coffee");
+  els.closeAboutBtn.setAttribute("aria-label", t("editor.closeAria"));
+  updateAboutVersion();
 
   // Settings modal
   els.settingsTitle.textContent = t("settings.title");
@@ -1137,6 +1164,9 @@ async function loadConfig() {
     els.versionBadge.textContent = `v${cfg.version}`;
     document.title = `FiveQThoughts v${cfg.version} – TheBrain Quick Thoughts`;
   }
+  state.versionDate = cfg.versionDate || "";
+  state.platform = cfg.platform || "";
+  updateAboutVersion();
   state.cardCount = cfg.cardCount || 5;
   state.hasApiKey = Boolean(cfg.hasApiKey);
   state.maskedKey = cfg.maskedKey || "";
@@ -1447,11 +1477,49 @@ els.lightboxCopyBtn.addEventListener("click", () => {
   }
 });
 
+// About dialog
+function updateAboutVersion() {
+  if (!els.aboutVersion) return;
+  let text = `${t("about.version")} ${state.version}`;
+  if (state.versionDate) {
+    const d = new Date(`${state.versionDate}T12:00:00`);
+    const locale = t("meta.dateLocale");
+    const dateStr = isNaN(d) ? state.versionDate : d.toLocaleDateString(locale === "meta.dateLocale" ? undefined : locale);
+    text += ` (${dateStr})`;
+  }
+  els.aboutVersion.textContent = text;
+}
+
+function openAboutModal() {
+  updateAboutVersion();
+  const showCoffee = state.platform === "Windows" && COFFEE_URL;
+  els.aboutCoffeeLink.classList.toggle("hidden", !showCoffee);
+  if (showCoffee) els.aboutCoffeeLink.href = COFFEE_URL;
+  els.aboutModal.classList.remove("hidden");
+  els.okAboutBtn.focus();
+}
+
+function closeAboutModal() {
+  els.aboutModal.classList.add("hidden");
+}
+
+// Called by the native hosts (macOS app menu, Windows tray menu)
+window.showAbout = openAboutModal;
+
+els.aboutBtn.addEventListener("click", openAboutModal);
+els.brandTitle.addEventListener("click", openAboutModal);
+els.closeAboutBtn.addEventListener("click", closeAboutModal);
+els.okAboutBtn.addEventListener("click", closeAboutModal);
+els.aboutModal.addEventListener("click", (e) => {
+  if (e.target === els.aboutModal) closeAboutModal();
+});
+
 document.addEventListener("keydown", (e) => {
   const activeTag = document.activeElement?.tagName;
   const inInput = activeTag === "INPUT" || activeTag === "TEXTAREA";
 
   if (e.key === "Escape") {
+    closeAboutModal();
     closeLightbox();
     closeEditorModal();
     els.settingsModal.classList.add("hidden");

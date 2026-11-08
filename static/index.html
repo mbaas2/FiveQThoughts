@@ -9,10 +9,10 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <span class="bolt-icon" aria-hidden="true">⚡</span>
+      <button type="button" id="aboutBtn" class="bolt-icon about-trigger" title="Über FiveQThoughts" aria-label="Über FiveQThoughts">⚡</button>
       <div>
         <div class="brand-title-row">
-          <h1>FiveQThoughts</h1>
+          <h1 id="brandTitle" class="about-trigger" title="Über FiveQThoughts">FiveQThoughts</h1>
           <span id="versionBadge" class="version-badge">v1.5.0</span>
           <span id="backendBadge" class="backend-badge" title="">💻 Lokal</span>
         </div>
@@ -225,6 +225,31 @@
         </div>
         <div style="margin-top: 14px;">
           <button id="copySetupUrlBtn" type="button" class="btn btn-secondary btn-sm">Link kopieren</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- About Modal -->
+  <div id="aboutModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <div class="modal-card about-card">
+      <div class="modal-header">
+        <h2 id="aboutTitle">Über FiveQThoughts</h2>
+        <button id="closeAboutBtn" type="button" class="btn-icon" aria-label="Schließen">✕</button>
+      </div>
+      <div class="modal-body about-body">
+        <div class="about-logo" aria-hidden="true">⚡</div>
+        <div class="about-app-name">FiveQThoughts</div>
+        <div id="aboutVersion" class="about-version"></div>
+        <div class="about-author">
+          <span id="aboutAuthorLabel">Autor</span>: Michael Baas<br />DLS Software &amp; Beratung GmbH
+        </div>
+        <div class="about-links">
+          <a id="aboutRepoLink" href="https://github.com/mbaas2/FiveQThoughts" target="_blank" rel="noopener noreferrer">Quellcode auf GitHub</a>
+          <a id="aboutCoffeeLink" class="hidden" href="#" target="_blank" rel="noopener noreferrer">☕ Buy me a coffee</a>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="okAboutBtn" class="btn btn-primary">OK</button>
         </div>
       </div>
     </div>
