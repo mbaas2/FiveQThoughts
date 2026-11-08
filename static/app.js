@@ -130,6 +130,8 @@ const els = {
   lightboxImg: document.getElementById("lightboxImg"),
   lightboxCopyBtn: document.getElementById("lightboxCopyBtn"),
   closeLightboxBtn: document.getElementById("closeLightboxBtn"),
+  lightboxBox: document.querySelector("#lightboxModal .lightbox-content"),
+  lightboxResize: document.getElementById("lightboxResize"),
   toast: document.getElementById("toast"),
 };
 
@@ -269,6 +271,7 @@ function applyStaticTranslations() {
 
   // Lightbox
   els.lightboxCopyBtn.textContent = t("lightbox.copyBtn");
+  if (els.lightboxResize) els.lightboxResize.title = t("lightbox.resize");
   els.closeLightboxBtn.textContent = t("lightbox.closeBtn");
 
   if (state.cards.length > 0 || state.totalCount > 0) {
@@ -882,8 +885,69 @@ async function saveEditorSubmit(e) {
 
 /* --- Lightbox --- */
 
+const LIGHTBOX_SIZE_KEY = "fiveq_lightbox_size";
+
+function clampLightboxSize(w, h) {
+  const maxW = window.innerWidth - 32;
+  const maxH = window.innerHeight - 32;
+  return {
+    w: Math.max(Math.min(320, maxW), Math.min(w, maxW)),
+    h: Math.max(Math.min(200, maxH), Math.min(h, maxH)),
+  };
+}
+
+function applyLightboxSize(w, h) {
+  const size = clampLightboxSize(w, h);
+  els.lightboxBox.style.width = size.w + "px";
+  els.lightboxBox.style.height = size.h + "px";
+  return size;
+}
+
+function initLightboxSize() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(LIGHTBOX_SIZE_KEY) || "null"); } catch (_) {}
+  if (saved && saved.w > 0 && saved.h > 0) {
+    applyLightboxSize(saved.w, saved.h);
+  } else {
+    applyLightboxSize(window.innerWidth * 0.8, window.innerHeight * 0.8);
+  }
+}
+
+function setupLightboxResize() {
+  const grip = els.lightboxResize;
+  if (!grip) return;
+  let start = null;
+  grip.addEventListener("pointerdown", (e) => {
+    const r = els.lightboxBox.getBoundingClientRect();
+    start = { x: e.clientX, y: e.clientY, w: r.width, h: r.height };
+    grip.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  grip.addEventListener("pointermove", (e) => {
+    if (!start) return;
+    // dialog is centered: each edge moves by half of the size change → 2x delta keeps the corner under the cursor
+    applyLightboxSize(start.w + 2 * (e.clientX - start.x), start.h + 2 * (e.clientY - start.y));
+  });
+  const end = () => {
+    if (!start) return;
+    start = null;
+    const r = els.lightboxBox.getBoundingClientRect();
+    try { localStorage.setItem(LIGHTBOX_SIZE_KEY, JSON.stringify({ w: Math.round(r.width), h: Math.round(r.height) })); } catch (_) {}
+  };
+  grip.addEventListener("pointerup", end);
+  grip.addEventListener("pointercancel", end);
+  window.addEventListener("resize", () => {
+    if (!els.lightboxModal.classList.contains("hidden")) {
+      const r = els.lightboxBox.getBoundingClientRect();
+      applyLightboxSize(r.width, r.height);
+    }
+  });
+}
+setupLightboxResize();
+
 function openLightbox(thoughtId, imgItem) {
   state.lightboxImage = { thoughtId, imgItem };
+  initLightboxSize();
   els.lightboxTitle.textContent = imgItem.name || imgItem.fileName || t("cards.imageDefaultName");
   els.lightboxImg.src = imgItem.proxyUrl;
   els.lightboxModal.classList.remove("hidden");

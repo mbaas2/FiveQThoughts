@@ -101,7 +101,8 @@
   },
   "lightbox": {
     "copyBtn": "📋 Grafik kopieren",
-    "closeBtn": "✕ Schließen"
+    "closeBtn": "✕ Schließen",
+    "resize": "Größe ändern"
   },
   "toasts": {
     "noTextToCopy": "Kein Text zum Kopieren vorhanden.",

@@ -101,7 +101,8 @@
   },
   "lightbox": {
     "copyBtn": "📋 Copy image",
-    "closeBtn": "✕ Close"
+    "closeBtn": "✕ Close",
+    "resize": "Resize"
   },
   "toasts": {
     "noTextToCopy": "No text available to copy.",
