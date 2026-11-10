@@ -35,5 +35,7 @@
 - 🛠️ Entwicklung / Development: [DEVELOPMENT.md](DEVELOPMENT.md)
 - ☕ [Buy me a coffee](https://buymeacoffee.com/mbaas) · 💙 [GitHub Sponsors](https://github.com/sponsors/mbaas2)
 
+- 📄 Lizenz / License: [Apache 2.0 + Commons Clause](LICENSE) (Nutzung privat & gewerblich frei; kommerzielle Verwertung des Codes in eigenen Produkten erfordert eine Lizenz / free for personal & business use; selling or embedding the code in commercial products requires a commercial license)
+
 ---
 Michael Baas · DLS Software & Beratung GmbH · TheBrain ist eine Marke von TheBrain Technologies LP; dieses Projekt ist davon unabhängig.
