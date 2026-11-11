@@ -230,6 +230,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         appMenuItem.submenu = appMenu
         appMenu.addItem(withTitle: "Über FiveQThoughts", action: #selector(showAboutAction), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Einstellungen …", action: #selector(showSettingsAction), keyEquivalent: ",")
+        appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "FiveQThoughts ein-/ausblenden", action: #selector(toggleWindowAction), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "FiveQThoughts ausblenden", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
@@ -275,6 +277,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         let reloadItem = NSMenuItem(title: "Aktualisieren", action: #selector(reloadWebView), keyEquivalent: "r")
         reloadItem.target = self
         menu.addItem(reloadItem)
+
+        let settingsItem = NSMenuItem(title: "Einstellungen …", action: #selector(showSettingsAction), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
         let aboutItem = NSMenuItem(title: "Über FiveQThoughts", action: #selector(showAboutAction), keyEquivalent: "")
@@ -338,6 +344,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
     @objc func showAboutAction() {
         showWindowAndActivate()
         webView.evaluateJavaScript("window.showAbout && window.showAbout()", completionHandler: nil)
+    }
+
+    @objc func showSettingsAction() {
+        showWindowAndActivate()
+        webView.evaluateJavaScript("window.showSettings && window.showSettings()", completionHandler: nil)
     }
 
     @objc func reloadWebView() {

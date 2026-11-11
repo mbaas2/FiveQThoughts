@@ -19,7 +19,7 @@
     <RootNamespace>FiveQThoughtsHost</RootNamespace>
     <ApplicationIcon>FiveQThoughts.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.5.0</Version>
+    <Version>1.5.2</Version>
     <Product>FiveQThoughts</Product>
     <Company>FiveQThoughts</Company>
     <Description>FiveQThoughts – TheBrain Quick Thoughts</Description>

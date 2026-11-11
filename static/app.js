@@ -95,6 +95,8 @@ const els = {
   closeSettingsBtn: document.getElementById("closeSettingsBtn"),
   cancelSettingsBtn: document.getElementById("cancelSettingsBtn"),
   saveSettingsBtn: document.getElementById("saveSettingsBtn"),
+  testConnectionBtn: document.getElementById("testConnectionBtn"),
+  testConnectionResult: document.getElementById("testConnectionResult"),
   settingsForm: document.getElementById("settingsForm"),
   settingsModeLabel: document.getElementById("settingsModeLabel"),
   connectionModeSelect: document.getElementById("connectionModeSelect"),
@@ -283,6 +285,9 @@ function applyStaticTranslations() {
   els.settingsLangAutoOpt.textContent = t("settings.languageAuto");
   els.cancelSettingsBtn.textContent = t("settings.cancelBtn");
   els.saveSettingsBtn.textContent = t("settings.saveBtn");
+  if (els.testConnectionBtn && !els.testConnectionBtn.disabled) {
+    els.testConnectionBtn.textContent = t("settings.testBtn");
+  }
   updateKeyHintText();
   updateBackendBadge();
 
@@ -1446,15 +1451,112 @@ if (els.langSelect) {
   });
 }
 
-els.settingsBtn.addEventListener("click", async () => {
+// Settings can be opened from anywhere (top bar, native app/tray menu, ⌘, / Ctrl+,),
+// also on top of an open editor — the editor keeps its unsaved content.
+async function openSettingsModal() {
+  if (!els.settingsModal.classList.contains("hidden")) {
+    els.apiKeyInput.focus();
+    return;
+  }
   await loadConfig();
   els.apiKeyInput.value = "";
   if (els.cloudApiKeyInput) els.cloudApiKeyInput.value = "";
+  clearTestResult();
   els.settingsModal.classList.remove("hidden");
-});
+  setTimeout(() => els.apiKeyInput.focus(), 50);
+}
 
-els.closeSettingsBtn.addEventListener("click", () => els.settingsModal.classList.add("hidden"));
-els.cancelSettingsBtn.addEventListener("click", () => els.settingsModal.classList.add("hidden"));
+function closeSettingsModal() {
+  const wasOpen = !els.settingsModal.classList.contains("hidden");
+  els.settingsModal.classList.add("hidden");
+  // Return focus to the editor if it is still open underneath
+  if (wasOpen && !els.editorModal.classList.contains("hidden")) {
+    setTimeout(() => els.editorMarkdown.focus(), 50);
+  }
+}
+
+// Called by the native hosts (macOS app menu, Windows tray menu)
+window.showSettings = openSettingsModal;
+
+// "Test connection": checks the values currently entered (not yet saved)
+// against every backend the selected connection mode uses.
+function clearTestResult() {
+  if (!els.testConnectionResult) return;
+  els.testConnectionResult.classList.add("hidden");
+  els.testConnectionResult.innerHTML = "";
+}
+
+function describeTestResult(r) {
+  switch (r.kind) {
+    case "ok": return t("settings.testOk");
+    case "noKey": return t("settings.testNoKey");
+    case "unauthorized": return t("settings.testUnauthorized", { status: r.status });
+    case "unreachable": return t("settings.testUnreachable", { error: r.message });
+    default: return t("settings.testError", { error: r.message || `HTTP ${r.status}` });
+  }
+}
+
+function showTestResults(lines) {
+  const box = els.testConnectionResult;
+  box.innerHTML = "";
+  lines.forEach(({ ok, label, text }) => {
+    const row = document.createElement("div");
+    row.className = `test-result-row ${ok ? "ok" : "fail"}`;
+    if (label) {
+      const strong = document.createElement("strong");
+      strong.textContent = `${label}: `;
+      row.appendChild(strong);
+    }
+    row.appendChild(document.createTextNode(text));
+    box.appendChild(row);
+  });
+  box.classList.remove("hidden");
+}
+
+async function testConnection() {
+  const btn = els.testConnectionBtn;
+  btn.disabled = true;
+  btn.textContent = t("settings.testingBtn");
+  clearTestResult();
+  try {
+    const resp = await fetch("/api/config/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        baseUrl: els.baseUrlInput.value.trim(),
+        apiKey: els.apiKeyInput.value.trim(),
+        cloudApiKey: els.cloudApiKeyInput ? els.cloudApiKeyInput.value.trim() : "",
+        connectionMode: els.connectionModeSelect ? els.connectionModeSelect.value : state.connectionMode,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    showTestResults(
+      data.results.map((r) => ({
+        ok: r.ok,
+        label: t(r.target === "cloud" ? "settings.targetCloud" : "settings.targetLocal"),
+        text: describeTestResult(r),
+      }))
+    );
+  } catch (err) {
+    showTestResults([{ ok: false, label: "", text: t("settings.testFailed", { error: err.message }) }]);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = t("settings.testBtn");
+  }
+}
+
+if (els.testConnectionBtn) {
+  els.testConnectionBtn.addEventListener("click", testConnection);
+  // A changed input invalidates a previous test result
+  [els.baseUrlInput, els.apiKeyInput, els.cloudApiKeyInput, els.connectionModeSelect]
+    .filter(Boolean)
+    .forEach((el) => el.addEventListener("input", clearTestResult));
+}
+
+els.settingsBtn.addEventListener("click", openSettingsModal);
+els.closeSettingsBtn.addEventListener("click", closeSettingsModal);
+els.cancelSettingsBtn.addEventListener("click", closeSettingsModal);
 
 els.settingsForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -1487,7 +1589,7 @@ els.settingsForm.addEventListener("submit", async (e) => {
     applyTheme(data.theme || selectedTheme, false);
     localStorage.setItem("fiveq_lang", selectedLang);
     await loadTranslations(selectedLang);
-    els.settingsModal.classList.add("hidden");
+    closeSettingsModal();
     showToast(t("toasts.settingsSaved"));
     await loadThoughts(true);
     updateGridLayout();
@@ -1635,11 +1737,22 @@ document.addEventListener("keydown", (e) => {
   const activeTag = document.activeElement?.tagName;
   const inInput = activeTag === "INPUT" || activeTag === "TEXTAREA";
 
+  if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+    e.preventDefault();
+    openSettingsModal();
+    return;
+  }
+
   if (e.key === "Escape") {
+    // Settings may sit on top of the editor: close only the settings then,
+    // so an unsaved thought is not lost.
+    if (!els.settingsModal.classList.contains("hidden")) {
+      closeSettingsModal();
+      return;
+    }
     closeAboutModal();
     closeLightbox();
     closeEditorModal();
-    els.settingsModal.classList.add("hidden");
     if (state.confirmingDeleteId) {
       state.confirmingDeleteId = null;
       renderCards();

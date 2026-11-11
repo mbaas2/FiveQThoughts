@@ -97,7 +97,17 @@
     "languageLabel": "Language / Sprache",
     "languageAuto": "Auto (System language)",
     "cancelBtn": "Cancel",
-    "saveBtn": "Save & Connect"
+    "saveBtn": "Save & Connect",
+    "testBtn": "Test connection",
+    "testingBtn": "Testing …",
+    "targetLocal": "Local",
+    "targetCloud": "Cloud",
+    "testOk": "✓ Connection successful",
+    "testNoKey": "No key entered",
+    "testUnauthorized": "Key invalid or expired (HTTP {status})",
+    "testUnreachable": "Server unreachable ({error})",
+    "testError": "Error: {error}",
+    "testFailed": "Test failed: {error}"
   },
   "lightbox": {
     "copyBtn": "📋 Copy image",

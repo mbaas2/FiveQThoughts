@@ -395,6 +395,14 @@ namespace FiveQThoughtsHost
             catch { }
         }
 
+        private async void ShowSettings()
+        {
+            ShowAndActivate();
+            if (!webViewReady) return;
+            try { await webView.CoreWebView2.ExecuteScriptAsync("window.showSettings && window.showSettings()"); }
+            catch { }
+        }
+
         private void ReloadPage()
         {
             if (!webViewReady) return;
@@ -639,6 +647,10 @@ namespace FiveQThoughtsHost
             var reloadItem = new ToolStripMenuItem(L.T("Aktualisieren", "Reload"));
             reloadItem.Click += (s, e) => ReloadPage();
             menu.Items.Add(reloadItem);
+
+            var settingsItem = new ToolStripMenuItem(L.T("Einstellungen …", "Settings …"));
+            settingsItem.Click += (s, e) => ShowSettings();
+            menu.Items.Add(settingsItem);
 
             var browserItem = new ToolStripMenuItem(L.T("Im Browser öffnen", "Open in browser"));
             browserItem.Click += (s, e) => { if (!string.IsNullOrEmpty(targetUrl)) OpenExternal(targetUrl); };

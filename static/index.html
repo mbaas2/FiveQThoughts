@@ -195,9 +195,16 @@
           </select>
         </div>
 
-        <div class="modal-footer">
-          <button type="button" id="cancelSettingsBtn" class="btn btn-ghost">Abbrechen</button>
-          <button type="submit" id="saveSettingsBtn" class="btn btn-primary">Speichern &amp; Verbinden</button>
+        <div id="testConnectionResult" class="test-result hidden" aria-live="polite"></div>
+
+        <div class="modal-footer modal-footer-split">
+          <div class="modal-footer-left">
+            <button type="button" id="testConnectionBtn" class="btn btn-ghost">Verbindung testen</button>
+          </div>
+          <div class="modal-footer-right">
+            <button type="button" id="cancelSettingsBtn" class="btn btn-ghost">Abbrechen</button>
+            <button type="submit" id="saveSettingsBtn" class="btn btn-primary">Speichern &amp; Verbinden</button>
+          </div>
         </div>
       </form>
     </div>

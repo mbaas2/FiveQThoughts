@@ -783,6 +783,11 @@ body {
   padding: 16px;
 }
 
+/* Settings can be opened on top of the editor (e.g. to fix an invalid API key) */
+#settingsModal {
+  z-index: 60;
+}
+
 .modal-card {
   width: 100%;
   max-width: 480px;
@@ -962,6 +967,23 @@ body {
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.test-result {
+  margin: 4px 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.test-result-row.ok {
+  color: #10b981;
+}
+
+.test-result-row.fail {
+  color: #ef4444;
 }
 
 .modal-footer-left,

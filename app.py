@@ -333,6 +333,45 @@ def _single_target_request(
         )
 
 
+def test_connection_target(target: str, base_url: str, key: str, timeout: float = 8.0) -> dict:
+    """
+    Check candidate settings (not yet saved) against one backend by listing
+    Quick Thoughts. Returns {target, ok, status, kind, message} where kind is
+    one of: ok, noKey, unauthorized, unreachable, error.
+    """
+    result = {"target": target, "ok": False, "status": 0, "kind": "error", "message": ""}
+    if not key:
+        result["kind"] = "noKey"
+        return result
+    base = (base_url or "").rstrip("/")
+    path = "/v2/quick-thoughts" if target == "cloud" else "/api/v2/quick-thoughts"
+    req = urllib.request.Request(
+        f"{base}{path}",
+        method="GET",
+        headers={"Authorization": f"Bearer {key}", "Accept": "application/json, */*"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            resp.read(1)
+            result.update(ok=True, status=resp.status, kind="ok")
+    except urllib.error.HTTPError as err:
+        text_body = ""
+        try:
+            text_body = err.read().decode("utf-8", errors="replace").strip()
+            details = json.loads(text_body)
+            if isinstance(details, dict) and details.get("message"):
+                text_body = details["message"]
+        except Exception:
+            pass
+        result["status"] = err.code
+        result["kind"] = "unauthorized" if err.code in (401, 403) else "error"
+        result["message"] = (text_body or f"HTTP {err.code}: {err.reason}")[:200]
+    except (urllib.error.URLError, socket.timeout, TimeoutError, ValueError) as err:
+        result["kind"] = "unreachable"
+        result["message"] = str(getattr(err, "reason", err))[:200]
+    return result
+
+
 def thebrain_request(
     method: str,
     path: str,
@@ -1019,6 +1058,22 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                     self._send_json(HTTPStatus.OK, {"ok": True, "message": "In macOS Zwischenablage kopiert (Handoff aktiv)"})
                 except Exception as exc:
                     self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+                return
+
+            if path == "/api/config/test":
+                # Test the values currently entered in the settings dialog
+                # without saving them. Empty key fields fall back to the stored keys.
+                mode = body.get("connectionMode") or CONFIG.connection_mode
+                local_key = (body.get("apiKey") or "").strip() or CONFIG.api_key
+                cloud_key = (body.get("cloudApiKey") or "").strip() or CONFIG.cloud_api_key
+                jobs = []
+                if mode in ("auto", "local"):
+                    jobs.append(("local", (body.get("baseUrl") or "").strip() or CONFIG.base_url, local_key))
+                if mode in ("auto", "cloud"):
+                    jobs.append(("cloud", CONFIG.cloud_url, cloud_key))
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                    results = list(pool.map(lambda j: test_connection_target(*j), jobs))
+                self._send_json(HTTPStatus.OK, {"connectionMode": mode, "results": results})
                 return
 
             if path == "/api/config":

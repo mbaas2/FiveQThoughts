@@ -97,7 +97,17 @@
     "languageLabel": "Sprache / Language",
     "languageAuto": "Automatisch (Systemsprache)",
     "cancelBtn": "Abbrechen",
-    "saveBtn": "Speichern & Verbinden"
+    "saveBtn": "Speichern & Verbinden",
+    "testBtn": "Verbindung testen",
+    "testingBtn": "Teste …",
+    "targetLocal": "Lokal",
+    "targetCloud": "Cloud",
+    "testOk": "✓ Verbindung erfolgreich",
+    "testNoKey": "Kein Key eingetragen",
+    "testUnauthorized": "Key ungültig oder abgelaufen (HTTP {status})",
+    "testUnreachable": "Server nicht erreichbar ({error})",
+    "testError": "Fehler: {error}",
+    "testFailed": "Test fehlgeschlagen: {error}"
   },
   "lightbox": {
     "copyBtn": "📋 Grafik kopieren",
