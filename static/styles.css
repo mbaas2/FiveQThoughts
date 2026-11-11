@@ -958,6 +958,19 @@ body {
   margin-top: 6px;
 }
 
+.modal-footer-split {
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.modal-footer-left,
+.modal-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* Lightbox */
 .lightbox-content {
   position: relative;

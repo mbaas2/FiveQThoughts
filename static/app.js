@@ -83,6 +83,11 @@ const els = {
   pasteInlineToggle: document.getElementById("pasteInlineToggle"),
   pasteInlineText: document.getElementById("pasteInlineText"),
   editorAttachmentsWrap: document.getElementById("editorAttachmentsWrap"),
+  deleteEditorBtn: document.getElementById("deleteEditorBtn"),
+  deleteEditorConfirmGroup: document.getElementById("deleteEditorConfirmGroup"),
+  deleteEditorConfirmLabel: document.getElementById("deleteEditorConfirmLabel"),
+  deleteEditorConfirmYesBtn: document.getElementById("deleteEditorConfirmYesBtn"),
+  deleteEditorConfirmNoBtn: document.getElementById("deleteEditorConfirmNoBtn"),
   saveEditorBtn: document.getElementById("saveEditorBtn"),
   // Settings modal
   settingsModal: document.getElementById("settingsModal"),
@@ -221,6 +226,18 @@ function applyStaticTranslations() {
   els.pasteInlineLabelWrap.title = t("editor.pasteInlineTitle");
   els.cancelEditorBtn.textContent = t("editor.cancelBtn");
   els.saveEditorBtn.textContent = t("editor.saveBtn");
+  if (els.deleteEditorBtn) {
+    els.deleteEditorBtn.textContent = t("cards.deleteBtn");
+  }
+  if (els.deleteEditorConfirmLabel) {
+    els.deleteEditorConfirmLabel.textContent = t("cards.deleteConfirmQuestion");
+  }
+  if (els.deleteEditorConfirmYesBtn) {
+    els.deleteEditorConfirmYesBtn.textContent = t("cards.deleteConfirmYes");
+  }
+  if (els.deleteEditorConfirmNoBtn) {
+    els.deleteEditorConfirmNoBtn.textContent = t("cards.deleteConfirmNo");
+  }
 
   // About modal
   els.aboutBtn.title = t("about.title");
@@ -690,6 +707,8 @@ function openCreateModal() {
   els.editorModalTitle.textContent = t("editor.titleCreate");
   els.editorMarkdown.value = "";
   els.editorLinks.value = "";
+  if (els.deleteEditorBtn) els.deleteEditorBtn.classList.add("hidden");
+  if (els.deleteEditorConfirmGroup) els.deleteEditorConfirmGroup.classList.add("hidden");
   renderEditorAttachments();
   els.editorModal.classList.remove("hidden");
   setTimeout(() => els.editorMarkdown.focus(), 50);
@@ -704,6 +723,8 @@ function openEditModal(card) {
   els.editorModalTitle.textContent = t("editor.titleEdit");
   els.editorMarkdown.value = card.markdown || "";
   els.editorLinks.value = formatLinksForTextarea(card.links || []);
+  if (els.deleteEditorBtn) els.deleteEditorBtn.classList.remove("hidden");
+  if (els.deleteEditorConfirmGroup) els.deleteEditorConfirmGroup.classList.add("hidden");
   renderEditorAttachments();
   els.editorModal.classList.remove("hidden");
   setTimeout(() => els.editorMarkdown.focus(), 50);
@@ -712,6 +733,8 @@ function openEditModal(card) {
 function closeEditorModal() {
   els.editorModal.classList.add("hidden");
   state.editingThoughtId = null;
+  if (els.deleteEditorBtn) els.deleteEditorBtn.classList.add("hidden");
+  if (els.deleteEditorConfirmGroup) els.deleteEditorConfirmGroup.classList.add("hidden");
 }
 
 function renderEditorAttachments() {
@@ -1347,6 +1370,36 @@ els.newThoughtBtn.addEventListener("click", openCreateModal);
 els.closeEditorBtn.addEventListener("click", closeEditorModal);
 els.cancelEditorBtn.addEventListener("click", closeEditorModal);
 els.editorForm.addEventListener("submit", saveEditorSubmit);
+
+if (els.deleteEditorBtn) {
+  els.deleteEditorBtn.addEventListener("click", async () => {
+    if (!state.editingThoughtId) return;
+    if (state.instantDelete) {
+      const idToDelete = state.editingThoughtId;
+      closeEditorModal();
+      await deleteThoughtAction(idToDelete);
+    } else {
+      els.deleteEditorBtn.classList.add("hidden");
+      els.deleteEditorConfirmGroup.classList.remove("hidden");
+    }
+  });
+}
+
+if (els.deleteEditorConfirmYesBtn) {
+  els.deleteEditorConfirmYesBtn.addEventListener("click", async () => {
+    if (!state.editingThoughtId) return;
+    const idToDelete = state.editingThoughtId;
+    closeEditorModal();
+    await deleteThoughtAction(idToDelete);
+  });
+}
+
+if (els.deleteEditorConfirmNoBtn) {
+  els.deleteEditorConfirmNoBtn.addEventListener("click", () => {
+    els.deleteEditorConfirmGroup.classList.add("hidden");
+    els.deleteEditorBtn.classList.remove("hidden");
+  });
+}
 
 els.pasteClipboardImgBtn.addEventListener("click", fetchImageFromOsClipboard);
 els.editorFileInput.addEventListener("change", (e) => {

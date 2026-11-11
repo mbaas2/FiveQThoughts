@@ -113,9 +113,19 @@
         <!-- Existing & Staged Attachments -->
         <div id="editorAttachmentsWrap" class="editor-attachments hidden"></div>
 
-        <div class="modal-footer">
-          <button type="button" id="cancelEditorBtn" class="btn btn-ghost">Abbrechen</button>
-          <button type="submit" id="saveEditorBtn" class="btn btn-primary">Speichern (⌘↵)</button>
+        <div class="modal-footer modal-footer-split">
+          <div class="modal-footer-left" id="editorDeleteArea">
+            <button type="button" id="deleteEditorBtn" class="btn btn-danger hidden">🗑️ Löschen</button>
+            <div id="deleteEditorConfirmGroup" class="confirm-group hidden">
+              <span id="deleteEditorConfirmLabel" class="confirm-label">Löschen?</span>
+              <button type="button" id="deleteEditorConfirmYesBtn" class="btn btn-danger btn-sm">Ja</button>
+              <button type="button" id="deleteEditorConfirmNoBtn" class="btn btn-ghost btn-sm">Nein</button>
+            </div>
+          </div>
+          <div class="modal-footer-right">
+            <button type="button" id="cancelEditorBtn" class="btn btn-ghost">Abbrechen</button>
+            <button type="submit" id="saveEditorBtn" class="btn btn-primary">Speichern (⌘↵)</button>
+          </div>
         </div>
       </form>
     </div>
