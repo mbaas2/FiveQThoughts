@@ -16,7 +16,7 @@
 - Lokale TheBrain-API mit automatischem Cloud-Fallback
 - Deutsch & Englisch, helles & dunkles Design
 
-**Installation:** Windows-Installer bzw. Mac-Download unter [Releases](https://github.com/mbaas2/FiveQThoughts/releases/latest). Danach auf **⚙ API** klicken und den TheBrain-API-Key eintragen ([app.thebrain.com/api-keys](https://app.thebrain.com/api-keys) oder TheBrain → *Settings → User → Local API*).
+**Installation:** Windows-Installer bzw. Mac-Download unter [Releases](https://github.com/mbaas2/FiveQThoughts/releases/latest). Danach auf **⚙ Einstellungen** klicken und den TheBrain-API-Key eintragen ([app.thebrain.com/api-keys](https://app.thebrain.com/api-keys) oder TheBrain → *Settings → User → Local API*).
 
 ## English
 
@@ -27,7 +27,7 @@
 - Local TheBrain API with automatic cloud fallback
 - English & German, light & dark theme
 
-**Install:** Windows installer or Mac download on the [Releases](https://github.com/mbaas2/FiveQThoughts/releases/latest) page. Then click **⚙ API** and enter your TheBrain API key ([app.thebrain.com/api-keys](https://app.thebrain.com/api-keys) or TheBrain → *Settings → User → Local API*).
+**Install:** Windows installer or Mac download on the [Releases](https://github.com/mbaas2/FiveQThoughts/releases/latest) page. Then click **⚙ Settings** and enter your TheBrain API key ([app.thebrain.com/api-keys](https://app.thebrain.com/api-keys) or TheBrain → *Settings → User → Local API*).
 
 ## Mehr / More
 

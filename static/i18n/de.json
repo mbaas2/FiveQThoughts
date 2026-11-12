@@ -17,8 +17,8 @@
     "instantDeleteTitle": "Wenn aktiviert, werden Quick Thoughts beim Klick auf 'Löschen' sofort ohne Sicherheitsabfrage gelöscht.",
     "refreshBtn": "↻ Aktualisieren",
     "refreshBtnTitle": "Neu laden (Taste R)",
-    "settingsBtn": "⚙ API",
-    "settingsBtnTitle": "API-URL & Bearer Token konfigurieren",
+    "settingsBtn": "⚙ Einstellungen",
+    "settingsBtnTitle": "Einstellungen: Verbindung, API-Keys, Anzeige, Sprache",
     "themeToggleTitle": "Erscheinungsbild wechseln (Auto / Hell / Dunkel)",
     "languageTitle": "Sprache wählen / Select language",
     "backendLocal": "💻 Lokal",
@@ -74,7 +74,7 @@
     "savingBtn": "⏳ Speichere…"
   },
   "settings": {
-    "title": "TheBrain API-Einstellungen",
+    "title": "Einstellungen",
     "connectionModeLabel": "Verbindungsmodus",
     "modeAuto": "Automatisch (Lokal bevorzugt → Cloud-Fallback)",
     "modeLocal": "Nur Lokal (TheBrain 15 Desktop)",
@@ -135,7 +135,7 @@
     "thoughtCreated": "Neuer Quick Thought angelegt!",
     "saveError": "Fehler beim Speichern: {error}",
     "autoSynced": "⚡ Quick Thoughts automatisch aktualisiert",
-    "settingsSaved": "API-Einstellungen gespeichert!",
+    "settingsSaved": "Einstellungen gespeichert!",
     "genericError": "Fehler: {error}"
   },
   "about": {

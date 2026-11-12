@@ -270,11 +270,11 @@ def _single_target_request(
         if target == "cloud":
             raise TheBrainApiError(
                 401,
-                "Kein TheBrain Cloud API Key konfiguriert. Bitte in den API-Einstellungen einen Cloud-Key (https://app.thebrain.com/api-keys) eintragen.",
+                "Kein TheBrain Cloud API Key konfiguriert. Bitte in den Einstellungen einen Cloud-Key (https://app.thebrain.com/api-keys) eintragen.",
             )
         raise TheBrainApiError(
             401,
-            "Kein TheBrain Local API Key konfiguriert. Bitte in den API-Einstellungen den Key aus 'TheBrain -> Settings -> User -> Local API' eintragen.",
+            "Kein TheBrain Local API Key konfiguriert. Bitte in den Einstellungen den Key aus 'TheBrain -> Settings -> User -> Local API' eintragen.",
         )
 
     url = _build_target_url(target, path)
@@ -392,13 +392,13 @@ def thebrain_request(
     if local_err:
         raise TheBrainApiError(
             local_err.status,
-            f"{local_err.message} (Tipp: Hinterlege in den API-Einstellungen zusätzlich einen Cloud API Key für automatischen Fallback auf api.bra.in)",
+            f"{local_err.message} (Tipp: Hinterlege in den Einstellungen zusätzlich einen Cloud API Key für automatischen Fallback auf api.bra.in)",
             details=local_err.details,
         )
 
     raise TheBrainApiError(
         401,
-        "Weder ein Local API Key noch ein Cloud API Key ist konfiguriert. Bitte in den API-Einstellungen eintragen.",
+        "Weder ein Local API Key noch ein Cloud API Key ist konfiguriert. Bitte in den Einstellungen eintragen.",
     )
 
 
@@ -1481,7 +1481,7 @@ def main():
     if CONFIG.api_key:
         print(f"API Key geladen: {CONFIG.masked_key()}")
     else:
-        print("Hinweis: Noch kein API Key hinterlegt. Bitte in der App unter 'API-Einstellungen' eingeben.")
+        print("Hinweis: Noch kein API Key hinterlegt. Bitte in der App unter 'Einstellungen' eingeben.")
 
     # Native macOS standalone app mode (own ⌘+Tab entry, Menu Bar ⚡5Q, global hotkey ⌃⌥Q)
     if not args.no_browser and not args.browser_mode and platform.system() == "Darwin":
