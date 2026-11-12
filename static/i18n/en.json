@@ -110,6 +110,8 @@
     "testFailed": "Test failed: {error}"
   },
   "lightbox": {
+    "deleteBtn": "🗑️ Delete thought",
+    "deleteQuestion": "Delete this thought?",
     "copyBtn": "📋 Copy image",
     "closeBtn": "✕ Close",
     "resize": "Resize"

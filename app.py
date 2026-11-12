@@ -16,6 +16,7 @@ import re
 import shutil
 import socket
 import subprocess
+import struct
 import sys
 import tempfile
 import threading
@@ -24,10 +25,13 @@ import urllib.parse
 import urllib.request
 import uuid
 import webbrowser
+import zlib
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
+
+from qrcodegen import QrCode
 
 APP_DIR = Path(__file__).resolve().parent
 # When bundled with PyInstaller (Windows installer), resources live in the extracted bundle
@@ -68,7 +72,7 @@ def get_app_version() -> str:
                 return v
     except Exception:
         pass
-    return "1.2.0"
+    return "unknown"
 
 
 APP_VERSION = get_app_version()
@@ -212,46 +216,25 @@ class AppConfig:
 CONFIG = AppConfig()
 
 
-def generate_qr_png_bytes(text: str) -> Optional[bytes]:
-    if platform.system() == "Darwin":
-        qrgen_bin = RESOURCE_DIR / "packaging" / "qrgen"
-        if qrgen_bin.is_file() and os.access(qrgen_bin, os.X_OK):
-            try:
-                proc = subprocess.run([str(qrgen_bin), text], capture_output=True, timeout=2)
-                if proc.returncode == 0 and proc.stdout:
-                    return proc.stdout
-            except Exception as exc:
-                print(f"[WARN] native qrgen failed: {exc}", file=sys.stderr)
+def generate_qr_png_bytes(text: str) -> bytes:
+    qr = QrCode.encode_text(text, QrCode.Ecc.MEDIUM)
+    border, scale = 4, 8
+    size = qr.get_size()
+    width = (size + 2 * border) * scale
+    rows = []
+    for y in range(-border, size + border):
+        row = b"".join(bytes([0 if qr.get_module(x, y) else 255]) * scale
+                       for x in range(-border, size + border))
+        rows.extend([b"\x00" + row] * scale)
 
-        # Fallback to swift -e
-        escaped_text = text.replace("\\", "\\\\").replace('"', '\\"')
-        swift_code = f'''
-import Foundation
-import CoreImage
-import AppKit
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data)))
 
-let text = "{escaped_text}"
-let filter = CIFilter(name: "CIQRCodeGenerator")!
-filter.setValue(text.data(using: .utf8), forKey: "inputMessage")
-filter.setValue("M", forKey: "inputCorrectionLevel")
-if let ciImage = filter.outputImage {{
-    let rep = NSCIImageRep(ciImage: ciImage.transformed(by: CGAffineTransform(scaleX: 8, y: 8)))
-    let nsImage = NSImage(size: rep.size)
-    nsImage.addRepresentation(rep)
-    if let tiff = nsImage.tiffRepresentation,
-       let bitmap = NSBitmapImageRep(data: tiff),
-       let png = bitmap.representation(using: .png, properties: [:]) {{
-        FileHandle.standardOutput.write(png)
-    }}
-}}
-'''
-        try:
-            proc = subprocess.run(["swift", "-e", swift_code], capture_output=True, timeout=10)
-            if proc.returncode == 0 and proc.stdout:
-                return proc.stdout
-        except Exception as exc:
-            print(f"[WARN] QR generation fallback failed: {exc}", file=sys.stderr)
-    return None
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, width, 8, 0, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"".join(rows)))
+            + chunk(b"IEND", b""))
 
 
 class TheBrainApiError(Exception):
@@ -991,7 +974,7 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                 if not key:
                     self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Kein API-Schlüssel hinterlegt"})
                     return
-                setup_url = f"fiveq://setup?key={key}"
+                setup_url = f"fiveq://setup?{urllib.parse.urlencode({'key': key})}"
                 png_bytes = generate_qr_png_bytes(setup_url)
                 if not png_bytes:
                     self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "QR-Code konnte nicht erzeugt werden"})
@@ -1010,7 +993,7 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.OK,
                     {
                         "hasKey": bool(key),
-                        "setupUrl": f"fiveq://setup?key={key}" if key else "",
+                        "setupUrl": f"fiveq://setup?{urllib.parse.urlencode({'key': key})}" if key else "",
                         "maskedKey": CONFIG.masked_cloud_key() or CONFIG.masked_key(),
                     },
                 )

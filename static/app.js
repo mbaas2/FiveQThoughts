@@ -15,7 +15,7 @@ const state = {
   confirmingDeleteId: null,
   lightboxImage: null,
   // Config & i18n
-  version: "1.4.0",
+  version: "?",
   versionDate: "",
   platform: "",
   hasApiKey: false,
@@ -136,6 +136,11 @@ const els = {
   lightboxTitle: document.getElementById("lightboxTitle"),
   lightboxImg: document.getElementById("lightboxImg"),
   lightboxCopyBtn: document.getElementById("lightboxCopyBtn"),
+  lightboxDeleteBtn: document.getElementById("lightboxDeleteBtn"),
+  lightboxDeleteConfirm: document.getElementById("lightboxDeleteConfirm"),
+  lightboxDeleteQuestion: document.getElementById("lightboxDeleteQuestion"),
+  lightboxDeleteYes: document.getElementById("lightboxDeleteYes"),
+  lightboxDeleteNo: document.getElementById("lightboxDeleteNo"),
   closeLightboxBtn: document.getElementById("closeLightboxBtn"),
   lightboxBox: document.querySelector("#lightboxModal .lightbox-content"),
   lightboxResize: document.getElementById("lightboxResize"),
@@ -293,6 +298,10 @@ function applyStaticTranslations() {
 
   // Lightbox
   els.lightboxCopyBtn.textContent = t("lightbox.copyBtn");
+  els.lightboxDeleteBtn.textContent = t("lightbox.deleteBtn");
+  els.lightboxDeleteQuestion.textContent = t("lightbox.deleteQuestion");
+  els.lightboxDeleteYes.textContent = t("cards.deleteConfirmYes");
+  els.lightboxDeleteNo.textContent = t("cards.deleteConfirmNo");
   if (els.lightboxResize) els.lightboxResize.title = t("lightbox.resize");
   els.closeLightboxBtn.textContent = t("lightbox.closeBtn");
 
@@ -655,13 +664,14 @@ async function deleteThoughtAction(thoughtId) {
         }
       } catch (_) {
         await loadThoughts(false);
-        return;
+        return true;
       }
     }
 
     renderCards();
     updateSubtitle();
     showToast(t("toasts.thoughtDeletedAndLoaded"));
+    return true;
   } catch (err) {
     if (cardEl) {
       cardEl.classList.remove("removing");
@@ -982,6 +992,8 @@ function openLightbox(thoughtId, imgItem) {
 }
 
 function closeLightbox() {
+  els.lightboxDeleteConfirm.classList.add("hidden");
+  els.lightboxDeleteBtn.classList.remove("hidden");
   els.lightboxModal.classList.add("hidden");
   els.lightboxImg.src = "";
   state.lightboxImage = null;
@@ -1619,6 +1631,10 @@ if (els.copyForIosBtn) {
   });
 }
 
+if (els.qrImage) {
+  els.qrImage.addEventListener("error", () => showToast("Konnte QR-Code nicht laden", true));
+}
+
 if (els.showQrBtn) {
   els.showQrBtn.addEventListener("click", async () => {
     try {
@@ -1682,6 +1698,25 @@ if (els.pasteFromIosBtn) {
   });
 }
 
+els.lightboxDeleteBtn.addEventListener("click", () => {
+  els.lightboxDeleteBtn.classList.add("hidden");
+  els.lightboxDeleteConfirm.classList.remove("hidden");
+});
+els.lightboxDeleteNo.addEventListener("click", () => {
+  els.lightboxDeleteConfirm.classList.add("hidden");
+  els.lightboxDeleteBtn.classList.remove("hidden");
+});
+els.lightboxDeleteYes.addEventListener("click", async () => {
+  if (!state.lightboxImage) return;
+  const thoughtId = state.lightboxImage.thoughtId;
+  els.lightboxDeleteYes.disabled = true;
+  try {
+    const deleted = await deleteThoughtAction(thoughtId);
+    if (deleted && state.lightboxImage?.thoughtId === thoughtId) closeLightbox();
+  } finally {
+    els.lightboxDeleteYes.disabled = false;
+  }
+});
 els.closeLightboxBtn.addEventListener("click", closeLightbox);
 els.lightboxModal.addEventListener("click", (e) => {
   if (e.target === els.lightboxModal) closeLightbox();

@@ -13,7 +13,7 @@
       <div>
         <div class="brand-title-row">
           <h1 id="brandTitle" class="about-trigger" title="Über FiveQThoughts">FiveQThoughts</h1>
-          <span id="versionBadge" class="version-badge">v1.5.0</span>
+          <span id="versionBadge" class="version-badge"></span>
           <span id="backendBadge" class="backend-badge" title="">💻 Lokal</span>
         </div>
         <span id="statusSubtitle" class="subtitle">Verbinde mit TheBrain API…</span>
@@ -216,6 +216,12 @@
       <div class="lightbox-bar">
         <span id="lightboxTitle" class="lightbox-title"></span>
         <div class="lightbox-actions">
+          <button id="lightboxDeleteBtn" type="button" class="btn btn-danger btn-sm">🗑️ Gedanken löschen</button>
+          <div id="lightboxDeleteConfirm" class="confirm-group hidden">
+            <span id="lightboxDeleteQuestion" class="confirm-label">Gedanken löschen?</span>
+            <button id="lightboxDeleteYes" type="button" class="btn btn-danger btn-sm">Ja</button>
+            <button id="lightboxDeleteNo" type="button" class="btn btn-ghost btn-sm">Nein</button>
+          </div>
           <button id="lightboxCopyBtn" class="btn btn-primary btn-sm">📋 Grafik kopieren</button>
           <button id="closeLightboxBtn" class="btn btn-secondary btn-sm">✕ Schließen</button>
         </div>

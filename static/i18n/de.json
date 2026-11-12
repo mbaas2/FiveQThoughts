@@ -110,6 +110,8 @@
     "testFailed": "Test fehlgeschlagen: {error}"
   },
   "lightbox": {
+    "deleteBtn": "🗑️ Gedanken löschen",
+    "deleteQuestion": "Diesen Gedanken löschen?",
     "copyBtn": "📋 Grafik kopieren",
     "closeBtn": "✕ Schließen",
     "resize": "Größe ändern"
