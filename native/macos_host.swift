@@ -115,25 +115,41 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
             return
         }
 
-        // Resolve app.py relative to FiveQThoughts.app/Contents/MacOS/FiveQThoughts
+        // Resolve app.py:
+        // 1. Check if bundled inside FiveQThoughts.app/Contents/Resources/app.py (standalone app)
+        let bundleResourcePy = Bundle.main.resourceURL?.appendingPathComponent("app.py")
+
+        // 2. Resolve app.py relative to FiveQThoughts.app/Contents/MacOS/FiveQThoughts (development mode)
         let execURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
         let projectDir = execURL
             .deletingLastPathComponent() // MacOS
             .deletingLastPathComponent() // Contents
             .deletingLastPathComponent() // FiveQThoughts.app
             .deletingLastPathComponent() // project root
-        let appPy = projectDir.appendingPathComponent("app.py")
+        let devAppPy = projectDir.appendingPathComponent("app.py")
 
-        guard FileManager.default.fileExists(atPath: appPy.path) else { return }
+        let targetAppPy: URL
+        let workDir: URL
+        if let b = bundleResourcePy, FileManager.default.fileExists(atPath: b.path) {
+            targetAppPy = b
+            workDir = b.deletingLastPathComponent()
+        } else if FileManager.default.fileExists(atPath: devAppPy.path) {
+            targetAppPy = devAppPy
+            workDir = projectDir
+        } else {
+            NSLog("Could not locate app.py in bundle resources or project directory.")
+            return
+        }
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        proc.arguments = [appPy.path, "--no-browser", "--port", String(port)]
-        proc.currentDirectoryURL = projectDir
+        proc.arguments = [targetAppPy.path, "--no-browser", "--port", String(port)]
+        proc.currentDirectoryURL = workDir
         do {
             try proc.run()
             self.backendProcess = proc
-            // Wait up to 2.5s for backend port to accept connections
+            // Wait up to 2.5s for backend port to accept connections; if it takes
+            // longer (e.g. first launch), the navigation-failure retry below covers it.
             for _ in 0..<25 {
                 if isPortOpen(port: port) { break }
                 Thread.sleep(forTimeInterval: 0.1)
@@ -181,8 +197,55 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
 
         window.contentView = webView
 
+        loadTarget()
+    }
+
+    // MARK: - Loading with retry (backend may still be starting)
+    private var loadAttempts = 0
+    private let maxLoadAttempts = 60 // ~30s at 0.5s intervals
+
+    private func loadTarget() {
         if let url = URL(string: targetUrl) {
-            webView.load(URLRequest(url: url))
+            webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10))
+        }
+    }
+
+    private func handleLoadFailure(_ error: Error) {
+        let nsError = error as NSError
+        // Ignore cancellations caused by a newer navigation replacing this one
+        if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
+
+        loadAttempts += 1
+        if loadAttempts < maxLoadAttempts {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.loadTarget()
+            }
+        } else {
+            let msg = nsError.localizedDescription
+                .replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+            let html = """
+            <html><body style="font-family:-apple-system;padding:40px;color:#444">
+            <h2>FiveQThoughts-Server nicht erreichbar</h2>
+            <p>\(targetUrl) antwortet nicht (\(msg)).</p>
+            <p>Bitte prüfen, ob Python 3 installiert ist (<code>/usr/bin/python3</code>),
+            und mit ⌘R erneut versuchen.</p></body></html>
+            """
+            webView.loadHTMLString(html, baseURL: nil)
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        handleLoadFailure(error)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        handleLoadFailure(error)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if webView.url?.absoluteString.hasPrefix(targetUrl) == true {
+            loadAttempts = 0
         }
     }
 
@@ -352,7 +415,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
     }
 
     @objc func reloadWebView() {
-        webView.reload()
+        // After an error page, reload() would only reload that page – go back to the app URL
+        if webView.url?.absoluteString.hasPrefix(targetUrl) == true {
+            webView.reload()
+        } else {
+            loadAttempts = 0
+            loadTarget()
+        }
     }
 }
 

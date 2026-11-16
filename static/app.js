@@ -1071,11 +1071,11 @@ function renderCards() {
       bodyEl.appendChild(linksWrap);
     }
 
-    // Note Text
+    // Note Text (rendered Markdown)
     if (cleanNote) {
       const noteEl = document.createElement("div");
-      noteEl.className = "note-content";
-      noteEl.textContent = cleanNote;
+      noteEl.className = "note-content note-markdown";
+      noteEl.innerHTML = renderMarkdown(cleanNote);
       bodyEl.appendChild(noteEl);
     } else if (allImages.length === 0 && links.length === 0) {
       const emptyNote = document.createElement("div");
@@ -1257,6 +1257,170 @@ function escapeHtml(str) {
 
 function escapeAttr(str) {
   return escapeHtml(str);
+}
+
+function isSafeUrl(url) {
+  const trimmed = String(url || "").trim();
+  return /^(https?:\/\/|mailto:)/i.test(trimmed);
+}
+
+function renderInlineMarkdown(rawText) {
+  // Extract inline code spans and markdown links first so their contents are not altered
+  const tokens = [];
+  const stash = (html) => {
+    const idx = tokens.length;
+    tokens.push(html);
+    return `\u0000TOK${idx}\u0000`;
+  };
+
+  let s = String(rawText || "");
+
+  // 1. Inline code: `...`
+  s = s.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code>${escapeHtml(code)}</code>`));
+
+  // 2. Markdown links: [label](url)
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (full, label, url) => {
+    if (!isSafeUrl(url)) return full;
+    return stash(
+      `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`
+    );
+  });
+
+  // 3. Bare URLs: https://... or http://...
+  s = s.replace(/(^|[\s(>])(https?:\/\/[^\s<)]+)/g, (full, prefix, url) => {
+    // Strip trailing punctuation that is usually sentence-level
+    const m = url.match(/^(.*?)([.,;:!?]+)?$/);
+    const cleanUrl = m ? m[1] : url;
+    const trailing = (m && m[2]) || "";
+    if (!isSafeUrl(cleanUrl)) return full;
+    return `${prefix}${stash(
+      `<a href="${escapeAttr(cleanUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(cleanUrl)}</a>`
+    )}${trailing}`;
+  });
+
+  // 4. Escape remaining HTML
+  s = escapeHtml(s);
+
+  // 5. CommonMark backslash escapes for ASCII punctuation (e.g. \## -> ##)
+  s = s.replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1");
+
+  // 6. Bold / Italic / Strikethrough
+  s = s.replace(/\*\*\*([^*\n]+)\*\*\*/g, "<strong><em>$1</em></strong>");
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[^\w*])\*([^*\n]+)\*(?=[^\w*]|$)/g, "$1<em>$2</em>");
+  s = s.replace(/(^|[^\w_])_([^_\n]+)_(?=[^\w_]|$)/g, "$1<em>$2</em>");
+  s = s.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
+
+  // 7. Restore stashed tokens
+  return s.replace(/\u0000TOK(\d+)\u0000/g, (_, idx) => tokens[Number(idx)] || "");
+}
+
+function renderMarkdown(rawMd) {
+  const text = String(rawMd || "").replace(/\r\n?/g, "\n").trim();
+  if (!text) return "";
+
+  const lines = text.split("\n");
+  const out = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Blank line
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+
+    // Fenced code block ```
+    const fenceMatch = line.match(/^\s*```(.*)$/);
+    if (fenceMatch) {
+      const codeLines = [];
+      i++;
+      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      if (i < lines.length) i++;
+      out.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+      continue;
+    }
+
+    // ATX Heading (# .. ###### followed by space/tab or end of line)
+    const headingMatch = line.match(/^\s*(#{1,6})(?:\s+(.*))?$/);
+    if (headingMatch && (headingMatch[2] !== undefined || line.trim().length === headingMatch[1].length)) {
+      const level = headingMatch[1].length;
+      const content = (headingMatch[2] || "").replace(/\s+#+\s*$/, "").trim();
+      out.push(`<h${level}>${renderInlineMarkdown(content)}</h${level}>`);
+      i++;
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^\s*(?:---+|\*\*\*+|___+)\s*$/.test(line)) {
+      out.push("<hr />");
+      i++;
+      continue;
+    }
+
+    // Blockquote
+    if (/^\s*>\s?/.test(line)) {
+      const quoteLines = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+        quoteLines.push(lines[i].replace(/^\s*>\s?/, ""));
+        i++;
+      }
+      out.push(`<blockquote>${renderMarkdown(quoteLines.join("\n"))}</blockquote>`);
+      continue;
+    }
+
+    // Unordered list (- , * , + )
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
+        items.push(`<li>${renderInlineMarkdown(lines[i].replace(/^\s*[-*+]\s+/, ""))}</li>`);
+        i++;
+      }
+      out.push(`<ul>${items.join("")}</ul>`);
+      continue;
+    }
+
+    // Ordered list (1. , 2. , ...)
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+        items.push(`<li>${renderInlineMarkdown(lines[i].replace(/^\s*\d+\.\s+/, ""))}</li>`);
+        i++;
+      }
+      out.push(`<ol>${items.join("")}</ol>`);
+      continue;
+    }
+
+    // Paragraph (collect consecutive non-block lines)
+    const paraLines = [];
+    while (i < lines.length) {
+      const cur = lines[i];
+      if (
+        !cur.trim() ||
+        /^\s*```/.test(cur) ||
+        /^\s*#{1,6}(?:\s+|$)/.test(cur) ||
+        /^\s*(?:---+|\*\*\*+|___+)\s*$/.test(cur) ||
+        /^\s*>\s?/.test(cur) ||
+        /^\s*[-*+]\s+/.test(cur) ||
+        /^\s*\d+\.\s+/.test(cur)
+      ) {
+        break;
+      }
+      paraLines.push(renderInlineMarkdown(cur));
+      i++;
+    }
+    if (paraLines.length > 0) {
+      out.push(`<p>${paraLines.join("<br />")}</p>`);
+    }
+  }
+
+  return out.join("");
 }
 
 async function loadConfig() {

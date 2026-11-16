@@ -37,6 +37,7 @@ APP_DIR = Path(__file__).resolve().parent
 # When bundled with PyInstaller (Windows installer), resources live in the extracted bundle
 # and the install directory is not writable -> keep config in the per-user app data folder.
 IS_FROZEN = bool(getattr(sys, "frozen", False))
+IS_APP_BUNDLE = ".app/Contents" in str(APP_DIR) or "Contents/Resources" in str(APP_DIR)
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR)) if IS_FROZEN else APP_DIR
 STATIC_DIR = RESOURCE_DIR / "static"
 VERSION_FILE = RESOURCE_DIR / "VERSION"
@@ -51,7 +52,7 @@ def _user_data_dir() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")) / "FiveQThoughts"
 
 
-CONFIG_DIR = _user_data_dir() if IS_FROZEN else APP_DIR
+CONFIG_DIR = _user_data_dir() if (IS_FROZEN or IS_APP_BUNDLE or not os.access(str(APP_DIR), os.W_OK)) else APP_DIR
 LOCAL_CONFIG_PATH = CONFIG_DIR / "config.local.json"
 DEFAULT_CONFIG_PATH = APP_DIR / "config.json"
 USER_CONFIG_PATH = Path.home() / ".fiveqthoughts.json"
@@ -113,7 +114,18 @@ class AppConfig:
         self.load()
 
     def load(self):
-        for path in [DEFAULT_CONFIG_PATH, USER_CONFIG_PATH, LOCAL_CONFIG_PATH]:
+        candidate_paths = [
+            DEFAULT_CONFIG_PATH,
+            USER_CONFIG_PATH,
+            _user_data_dir() / "config.local.json",
+            APP_DIR / "config.local.json",
+            LOCAL_CONFIG_PATH,
+        ]
+        seen = set()
+        for path in candidate_paths:
+            if str(path) in seen:
+                continue
+            seen.add(str(path))
             if path.is_file():
                 try:
                     data = json.loads(path.read_text(encoding="utf-8"))
@@ -1259,6 +1271,8 @@ def get_macos_plist_content() -> str:
     <string>{APP_VERSION}</string>
     <key>CFBundleVersion</key>
     <string>{APP_VERSION}</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
     <string>12.0</string>
     <key>NSHighResolutionCapable</key>
@@ -1280,12 +1294,28 @@ def find_free_port(preferred: int = 11525) -> int:
 
 
 def ensure_macos_native_app() -> Optional[Path]:
-    """Compile native/macos_host.swift into FiveQThoughts.app if needed."""
+    """Compile native/macos_host.swift into FiveQThoughts.app if needed and bundle resources."""
     if platform.system() != "Darwin" or not MACOS_SWIFT_SOURCE.is_file():
         return None
 
     MACOS_APP_BINARY.parent.mkdir(parents=True, exist_ok=True)
     MACOS_INFO_PLIST.write_text(get_macos_plist_content(), encoding="utf-8")
+
+    # Bundle self-contained resources into Contents/Resources
+    res_dir = MACOS_APP_BUNDLE / "Contents" / "Resources"
+    res_dir.mkdir(parents=True, exist_ok=True)
+    for fname in ["app.py", "VERSION", "qrcodegen.py"]:
+        src = APP_DIR / fname
+        if src.is_file():
+            shutil.copy2(src, res_dir / fname)
+    if (APP_DIR / "static").is_dir():
+        dest_static = res_dir / "static"
+        if dest_static.exists():
+            shutil.rmtree(dest_static)
+        shutil.copytree(APP_DIR / "static", dest_static)
+    icon_src = APP_DIR / "packaging" / "AppIcon.icns"
+    if icon_src.is_file():
+        shutil.copy2(icon_src, res_dir / "AppIcon.icns")
 
     needs_build = not MACOS_APP_BINARY.is_file()
     if not needs_build:
