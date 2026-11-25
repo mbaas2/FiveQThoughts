@@ -76,6 +76,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
     var editorWindows: [NSWindow] = []
     var editorCascadeIndex: Int = 0
     var statusItem: NSStatusItem!
+    var statusToggleItem: NSMenuItem?
+    var statusNewNoteItem: NSMenuItem?
+    var currentHotkeyToggle: String = "Ctrl+Alt+Q"
+    var currentHotkeyNewNote: String = "Ctrl+Alt+N"
     var hotKeyRef: EventHotKeyRef?
     var newNoteHotKeyRef: EventHotKeyRef?
     var eventHandlerRef: EventHandlerRef?
@@ -202,8 +206,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        if let body = message.body as? String, body == "quit" {
+        guard let body = message.body as? String else { return }
+        if body == "quit" {
             NSApp.terminate(nil)
+        } else if body.hasPrefix("hotkeys:") {
+            let payload = String(body.dropFirst("hotkeys:".count))
+            let parts = payload.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+            let toggleSpec = parts.count > 0 ? String(parts[0]).trimmingCharacters(in: .whitespaces) : ""
+            let newNoteSpec = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
+            applyHotkeys(toggleSpec: toggleSpec, newNoteSpec: newNoteSpec)
         }
     }
 
@@ -448,10 +459,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         let menu = NSMenu()
         let toggleItem = NSMenuItem(title: "FiveQThoughts anzeigen/verbergen (⌃⌥Q)", action: #selector(toggleWindowAction), keyEquivalent: "")
         toggleItem.target = self
+        statusToggleItem = toggleItem
         menu.addItem(toggleItem)
 
         let newNoteItem = NSMenuItem(title: "＋ Neue Notiz (⌃⌥N)", action: #selector(openNewNoteAction), keyEquivalent: "")
         newNoteItem.target = self
+        statusNewNoteItem = newNoteItem
         menu.addItem(newNoteItem)
 
         let reloadItem = NSMenuItem(title: "Aktualisieren", action: #selector(reloadWebView), keyEquivalent: "r")
@@ -470,7 +483,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         statusItem.menu = menu
     }
 
-    // MARK: - Global Shortcut (⌃⌥Q / Ctrl+Option+Q)
+    // MARK: - Global Shortcuts (configurable, default ⌃⌥Q and ⌃⌥N)
     private func registerGlobalHotKey() {
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
@@ -486,30 +499,99 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
             &eventHandlerRef
         )
 
-        let hotKeyID = EventHotKeyID(signature: OSType(0x35515448), id: 1) // '5QTH'
-        // kVK_ANSI_Q = 0x0C (12), modifiers: controlKey (4096) + optionKey (2048) = ⌃⌥Q
-        let modifiers = UInt32(controlKey | optionKey)
-        let keyCode = UInt32(kVK_ANSI_Q)
+        applyHotkeys(toggleSpec: currentHotkeyToggle, newNoteSpec: currentHotkeyNewNote)
+    }
 
-        RegisterEventHotKey(
-            keyCode,
-            modifiers,
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &hotKeyRef
-        )
+    private func formatMacHotkey(_ spec: String) -> String {
+        let trimmed = spec.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return "" }
+        let map: [String: String] = ["Ctrl": "⌃", "Alt": "⌥", "Shift": "⇧", "Meta": "⌘"]
+        return trimmed.split(separator: "+").map { part -> String in
+            let s = String(part)
+            return map[s] ?? s
+        }.joined()
+    }
 
-        // kVK_ANSI_N = 0x2D (45), modifiers: controlKey + optionKey = ⌃⌥N (New Note)
-        let newNoteHotKeyID = EventHotKeyID(signature: OSType(0x35515448), id: 2)
-        RegisterEventHotKey(
-            UInt32(kVK_ANSI_N),
-            modifiers,
-            newNoteHotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &newNoteHotKeyRef
-        )
+    private func parseCarbonHotkey(_ spec: String) -> (modifiers: UInt32, keyCode: UInt32)? {
+        let trimmed = spec.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return nil }
+        var modifiers: UInt32 = 0
+        var keyCode: UInt32?
+
+        for raw in trimmed.split(separator: "+") {
+            let token = String(raw).trimmingCharacters(in: .whitespaces)
+            switch token.lowercased() {
+            case "ctrl", "control": modifiers |= UInt32(controlKey)
+            case "alt", "option": modifiers |= UInt32(optionKey)
+            case "shift": modifiers |= UInt32(shiftKey)
+            case "meta", "cmd", "command", "win", "super": modifiers |= UInt32(cmdKey)
+            default:
+                guard let code = carbonKeyCode(for: token.uppercased()) else { return nil }
+                keyCode = code
+            }
+        }
+        guard modifiers != 0, let code = keyCode else { return nil }
+        return (modifiers, code)
+    }
+
+    private func carbonKeyCode(for key: String) -> UInt32? {
+        let table: [String: Int] = [
+            "A": kVK_ANSI_A, "B": kVK_ANSI_B, "C": kVK_ANSI_C, "D": kVK_ANSI_D,
+            "E": kVK_ANSI_E, "F": kVK_ANSI_F, "G": kVK_ANSI_G, "H": kVK_ANSI_H,
+            "I": kVK_ANSI_I, "J": kVK_ANSI_J, "K": kVK_ANSI_K, "L": kVK_ANSI_L,
+            "M": kVK_ANSI_M, "N": kVK_ANSI_N, "O": kVK_ANSI_O, "P": kVK_ANSI_P,
+            "Q": kVK_ANSI_Q, "R": kVK_ANSI_R, "S": kVK_ANSI_S, "T": kVK_ANSI_T,
+            "U": kVK_ANSI_U, "V": kVK_ANSI_V, "W": kVK_ANSI_W, "X": kVK_ANSI_X,
+            "Y": kVK_ANSI_Y, "Z": kVK_ANSI_Z,
+            "0": kVK_ANSI_0, "1": kVK_ANSI_1, "2": kVK_ANSI_2, "3": kVK_ANSI_3,
+            "4": kVK_ANSI_4, "5": kVK_ANSI_5, "6": kVK_ANSI_6, "7": kVK_ANSI_7,
+            "8": kVK_ANSI_8, "9": kVK_ANSI_9,
+            "F1": kVK_F1, "F2": kVK_F2, "F3": kVK_F3, "F4": kVK_F4,
+            "F5": kVK_F5, "F6": kVK_F6, "F7": kVK_F7, "F8": kVK_F8,
+            "F9": kVK_F9, "F10": kVK_F10, "F11": kVK_F11, "F12": kVK_F12,
+            "SPACE": kVK_Space, "TAB": kVK_Tab, "ENTER": kVK_Return, "RETURN": kVK_Return,
+            "DELETE": kVK_ForwardDelete, "HOME": kVK_Home, "END": kVK_End,
+            "PAGEUP": kVK_PageUp, "PAGEDOWN": kVK_PageDown,
+            "UP": kVK_UpArrow, "DOWN": kVK_DownArrow, "LEFT": kVK_LeftArrow, "RIGHT": kVK_RightArrow
+        ]
+        guard let code = table[key] else { return nil }
+        return UInt32(code)
+    }
+
+    func applyHotkeys(toggleSpec: String, newNoteSpec: String) {
+        currentHotkeyToggle = toggleSpec.trimmingCharacters(in: .whitespaces)
+        currentHotkeyNewNote = newNoteSpec.trimmingCharacters(in: .whitespaces)
+
+        if let ref = hotKeyRef {
+            UnregisterEventHotKey(ref)
+            hotKeyRef = nil
+        }
+        if let ref = newNoteHotKeyRef {
+            UnregisterEventHotKey(ref)
+            newNoteHotKeyRef = nil
+        }
+
+        if let parsed = parseCarbonHotkey(currentHotkeyToggle) {
+            let hotKeyID = EventHotKeyID(signature: OSType(0x35515448), id: 1) // '5QTH'
+            RegisterEventHotKey(parsed.keyCode, parsed.modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+        }
+        if let parsed = parseCarbonHotkey(currentHotkeyNewNote) {
+            let newNoteHotKeyID = EventHotKeyID(signature: OSType(0x35515448), id: 2)
+            RegisterEventHotKey(parsed.keyCode, parsed.modifiers, newNoteHotKeyID, GetApplicationEventTarget(), 0, &newNoteHotKeyRef)
+        }
+
+        let toggleDisp = formatMacHotkey(currentHotkeyToggle)
+        let newNoteDisp = formatMacHotkey(currentHotkeyNewNote)
+        window?.title = toggleDisp.isEmpty
+            ? "FiveQThoughts — TheBrain Quick Thoughts"
+            : "FiveQThoughts — TheBrain Quick Thoughts (\(toggleDisp))"
+        statusItem?.button?.toolTip = toggleDisp.isEmpty ? "FiveQThoughts" : "FiveQThoughts (\(toggleDisp))"
+        statusToggleItem?.title = toggleDisp.isEmpty
+            ? "FiveQThoughts anzeigen/verbergen"
+            : "FiveQThoughts anzeigen/verbergen (\(toggleDisp))"
+        statusNewNoteItem?.title = newNoteDisp.isEmpty
+            ? "＋ Neue Notiz"
+            : "＋ Neue Notiz (\(newNoteDisp))"
     }
 
     @objc func openNewNoteAction() {

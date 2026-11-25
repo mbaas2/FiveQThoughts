@@ -1312,3 +1312,43 @@ body.editor-standalone #editorModal .modal-footer {
   color: #ef4444;
   border-color: rgba(239, 68, 68, 0.45);
 }
+
+/* Global Hotkey Recorder in Settings */
+.hotkey-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hotkey-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.hotkey-action-label {
+  font-size: 12.5px;
+  color: var(--text);
+  flex: 1;
+}
+
+.hotkey-input-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hotkey-input {
+  width: 150px !important;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px !important;
+  cursor: pointer;
+  user-select: none;
+}
+
+.hotkey-input:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+}

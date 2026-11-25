@@ -63,6 +63,8 @@ SUBPROCESS_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) if platform.system
 DEFAULT_BASE_URL = "http://localhost:11524"
 DEFAULT_CLOUD_URL = "https://api.bra.in"
 DEFAULT_CARD_COUNT = 5
+DEFAULT_HOTKEY_TOGGLE = "Ctrl+Alt+Q"
+DEFAULT_HOTKEY_NEW_NOTE = "Ctrl+Alt+N"
 
 
 def get_app_version() -> str:
@@ -110,6 +112,8 @@ class AppConfig:
         self.card_count: int = DEFAULT_CARD_COUNT
         self.language: str = "auto"
         self.theme: str = "auto"  # "auto" | "light" | "dark"
+        self.hotkey_toggle: str = DEFAULT_HOTKEY_TOGGLE
+        self.hotkey_new_note: str = DEFAULT_HOTKEY_NEW_NOTE
         self.active_backend: str = "local"  # "local" | "cloud"
         self.load()
 
@@ -145,6 +149,10 @@ class AppConfig:
                         self.language = str(data["language"]).strip().lower()
                     if data.get("theme") in ("auto", "light", "dark"):
                         self.theme = str(data["theme"]).strip().lower()
+                    if "hotkeyToggle" in data and isinstance(data["hotkeyToggle"], str):
+                        self.hotkey_toggle = data["hotkeyToggle"].strip()
+                    if "hotkeyNewNote" in data and isinstance(data["hotkeyNewNote"], str):
+                        self.hotkey_new_note = data["hotkeyNewNote"].strip()
                 except Exception as exc:
                     print(f"[WARN] Could not read {path}: {exc}", file=sys.stderr)
 
@@ -174,6 +182,8 @@ class AppConfig:
         cloud_api_key: Optional[str] = None,
         connection_mode: Optional[str] = None,
         theme: Optional[str] = None,
+        hotkey_toggle: Optional[str] = None,
+        hotkey_new_note: Optional[str] = None,
     ):
         base_url = base_url.strip().rstrip("/")
         for suffix in ["/mcp", "/api/v2", "/api", "/v2"]:
@@ -196,6 +206,10 @@ class AppConfig:
             self.language = language
         if theme in ("auto", "light", "dark"):
             self.theme = theme
+        if hotkey_toggle is not None:
+            self.hotkey_toggle = str(hotkey_toggle).strip()
+        if hotkey_new_note is not None:
+            self.hotkey_new_note = str(hotkey_new_note).strip()
 
         payload = {
             "baseUrl": self.base_url,
@@ -206,6 +220,8 @@ class AppConfig:
             "cardCount": self.card_count,
             "language": self.language,
             "theme": self.theme,
+            "hotkeyToggle": self.hotkey_toggle,
+            "hotkeyNewNote": self.hotkey_new_note,
         }
         LOCAL_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         LOCAL_CONFIG_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -887,6 +903,8 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                         "cardCount": CONFIG.card_count,
                         "language": CONFIG.language,
                         "theme": CONFIG.theme,
+                        "hotkeyToggle": CONFIG.hotkey_toggle,
+                        "hotkeyNewNote": CONFIG.hotkey_new_note,
                         "platform": platform.system(),
                         "version": APP_VERSION,
                         "versionDate": APP_VERSION_DATE,
@@ -1084,6 +1102,8 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                 card_count = int(body.get("cardCount") or CONFIG.card_count)
                 language = body.get("language") or CONFIG.language
                 theme = body.get("theme") or CONFIG.theme
+                hotkey_toggle = body["hotkeyToggle"] if "hotkeyToggle" in body else None
+                hotkey_new_note = body["hotkeyNewNote"] if "hotkeyNewNote" in body else None
                 CONFIG.save(
                     base_url=base_url,
                     api_key=api_key,
@@ -1093,6 +1113,8 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                     cloud_api_key=cloud_api_key,
                     connection_mode=connection_mode,
                     theme=theme,
+                    hotkey_toggle=hotkey_toggle,
+                    hotkey_new_note=hotkey_new_note,
                 )
                 total_count = 0
                 if not body.get("languageOnly") and not body.get("themeOnly"):
@@ -1113,6 +1135,8 @@ class FiveQRequestHandler(BaseHTTPRequestHandler):
                         "cardCount": CONFIG.card_count,
                         "language": CONFIG.language,
                         "theme": CONFIG.theme,
+                        "hotkeyToggle": CONFIG.hotkey_toggle,
+                        "hotkeyNewNote": CONFIG.hotkey_new_note,
                         "totalCount": total_count,
                     },
                 )

@@ -55,6 +55,8 @@ const state = {
   connectionMode: "auto", // "auto" | "local" | "cloud"
   activeBackend: "local", // "local" | "cloud"
   theme: "auto", // "auto" | "light" | "dark"
+  hotkeyToggle: "Ctrl+Alt+Q",
+  hotkeyNewNote: "Ctrl+Alt+N",
   languagePref: "auto", // "auto" | "de" | "en"
   activeLang: "en", // "de" | "en"
   i18n: {},
@@ -152,6 +154,17 @@ const els = {
   settingsLangLabel: document.getElementById("settingsLangLabel"),
   settingsLangSelect: document.getElementById("settingsLangSelect"),
   settingsLangAutoOpt: document.getElementById("settingsLangAutoOpt"),
+  settingsHotkeysSection: document.getElementById("settingsHotkeysSection"),
+  settingsHotkeysLabel: document.getElementById("settingsHotkeysLabel"),
+  hotkeyToggleLabel: document.getElementById("hotkeyToggleLabel"),
+  hotkeyToggleInput: document.getElementById("hotkeyToggleInput"),
+  hotkeyToggleClearBtn: document.getElementById("hotkeyToggleClearBtn"),
+  hotkeyToggleResetBtn: document.getElementById("hotkeyToggleResetBtn"),
+  hotkeyNewNoteLabel: document.getElementById("hotkeyNewNoteLabel"),
+  hotkeyNewNoteInput: document.getElementById("hotkeyNewNoteInput"),
+  hotkeyNewNoteClearBtn: document.getElementById("hotkeyNewNoteClearBtn"),
+  hotkeyNewNoteResetBtn: document.getElementById("hotkeyNewNoteResetBtn"),
+  settingsHotkeysHint: document.getElementById("settingsHotkeysHint"),
   currentKeyHint: document.getElementById("currentKeyHint"),
   // Share & Handoff
   copyForIosBtn: document.getElementById("copyForIosBtn"),
@@ -327,6 +340,20 @@ function applyStaticTranslations() {
   }
   els.settingsLangLabel.textContent = t("settings.languageLabel");
   els.settingsLangAutoOpt.textContent = t("settings.languageAuto");
+  if (els.settingsHotkeysLabel) {
+    els.settingsHotkeysLabel.textContent = t("settings.hotkeysLabel");
+    els.hotkeyToggleLabel.textContent = t("settings.hotkeyToggleLabel");
+    els.hotkeyNewNoteLabel.textContent = t("settings.hotkeyNewNoteLabel");
+    els.settingsHotkeysHint.innerHTML = t("settings.hotkeysHintHtml");
+    els.hotkeyToggleInput.placeholder = t("settings.hotkeyDisabled");
+    els.hotkeyNewNoteInput.placeholder = t("settings.hotkeyDisabled");
+    els.hotkeyToggleClearBtn.title = t("settings.hotkeyClearTitle");
+    els.hotkeyNewNoteClearBtn.title = t("settings.hotkeyClearTitle");
+    els.hotkeyToggleResetBtn.title = t("settings.hotkeyResetTitle");
+    els.hotkeyNewNoteResetBtn.title = t("settings.hotkeyResetTitle");
+    renderHotkeyInput(els.hotkeyToggleInput, els.hotkeyToggleInput.dataset.hotkey ?? state.hotkeyToggle);
+    renderHotkeyInput(els.hotkeyNewNoteInput, els.hotkeyNewNoteInput.dataset.hotkey ?? state.hotkeyNewNote);
+  }
   els.cancelSettingsBtn.textContent = t("settings.cancelBtn");
   els.saveSettingsBtn.textContent = t("settings.saveBtn");
   if (els.testConnectionBtn && !els.testConnectionBtn.disabled) {
@@ -1537,6 +1564,11 @@ async function loadConfig() {
   if (els.connectionModeSelect) {
     els.connectionModeSelect.value = state.connectionMode;
   }
+  state.hotkeyToggle = typeof cfg.hotkeyToggle === "string" ? cfg.hotkeyToggle : "Ctrl+Alt+Q";
+  state.hotkeyNewNote = typeof cfg.hotkeyNewNote === "string" ? cfg.hotkeyNewNote : "Ctrl+Alt+N";
+  if (els.hotkeyToggleInput) renderHotkeyInput(els.hotkeyToggleInput, state.hotkeyToggle);
+  if (els.hotkeyNewNoteInput) renderHotkeyInput(els.hotkeyNewNoteInput, state.hotkeyNewNote);
+  syncHotkeysToHost();
 
   const savedTheme = localStorage.getItem("fiveq_theme");
   const themePref = cfg.theme || savedTheme || "auto";
@@ -1853,6 +1885,8 @@ els.settingsForm.addEventListener("submit", async (e) => {
     cardCount: parseInt(els.cardCountInput.value, 10) || 5,
     language: selectedLang,
     theme: selectedTheme,
+    hotkeyToggle: els.hotkeyToggleInput ? (els.hotkeyToggleInput.dataset.hotkey ?? state.hotkeyToggle) : state.hotkeyToggle,
+    hotkeyNewNote: els.hotkeyNewNoteInput ? (els.hotkeyNewNoteInput.dataset.hotkey ?? state.hotkeyNewNote) : state.hotkeyNewNote,
   };
   try {
     const resp = await fetch("/api/config", {
@@ -1868,6 +1902,9 @@ els.settingsForm.addEventListener("submit", async (e) => {
     if (data.activeBackend) {
       state.activeBackend = data.activeBackend;
     }
+    state.hotkeyToggle = typeof data.hotkeyToggle === "string" ? data.hotkeyToggle : payload.hotkeyToggle;
+    state.hotkeyNewNote = typeof data.hotkeyNewNote === "string" ? data.hotkeyNewNote : payload.hotkeyNewNote;
+    syncHotkeysToHost();
     applyTheme(data.theme || selectedTheme, false);
     localStorage.setItem("fiveq_lang", selectedLang);
     await loadTranslations(selectedLang);
@@ -2106,6 +2143,108 @@ if (window.matchMedia) {
     }
   });
 }
+
+// Global hotkey recorder & host sync
+function formatHotkeyForDisplay(spec) {
+  if (!spec) return "";
+  if (state.platform === "Darwin") {
+    const map = { Ctrl: "⌃", Alt: "⌥", Shift: "⇧", Meta: "⌘", Space: "Space" };
+    return spec.split("+").map((p) => map[p] || p).join("");
+  }
+  return spec.replace(/\bMeta\b/g, "Win");
+}
+
+function renderHotkeyInput(inputEl, spec) {
+  if (!inputEl) return;
+  const clean = (spec || "").trim();
+  inputEl.dataset.hotkey = clean;
+  inputEl.value = clean ? formatHotkeyForDisplay(clean) : "";
+}
+
+function syncHotkeysToHost() {
+  if (!IS_STANDALONE_EDITOR && hasNativeHost()) {
+    postNativeMessage(`hotkeys:${state.hotkeyToggle || ""}|${state.hotkeyNewNote || ""}`);
+  }
+}
+
+function keyCodeToCanonicalKey(code) {
+  if (!code) return null;
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  if (/^F([1-9]|1[0-2])$/.test(code)) return code;
+  const special = {
+    Space: "Space",
+    Tab: "Tab",
+    Enter: "Enter",
+    Insert: "Insert",
+    Delete: "Delete",
+    Home: "Home",
+    End: "End",
+    PageUp: "PageUp",
+    PageDown: "PageDown",
+    ArrowUp: "Up",
+    ArrowDown: "Down",
+    ArrowLeft: "Left",
+    ArrowRight: "Right",
+  };
+  return special[code] || null;
+}
+
+function setupHotkeyRecorder(inputEl, clearBtn, resetBtn, defaultSpec, otherInputEl) {
+  if (!inputEl) return;
+  inputEl.addEventListener("focus", () => {
+    inputEl.placeholder = t("settings.hotkeyListening");
+  });
+  inputEl.addEventListener("blur", () => {
+    inputEl.placeholder = t("settings.hotkeyDisabled");
+  });
+  inputEl.addEventListener("keydown", (e) => {
+    // Allow Tab navigation without modifiers
+    if (e.key === "Tab" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
+      inputEl.blur();
+      return;
+    }
+    if ((e.key === "Backspace" || e.key === "Delete") && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
+      renderHotkeyInput(inputEl, "");
+      return;
+    }
+
+    const key = keyCodeToCanonicalKey(e.code);
+    if (!key) return; // modifier-only press
+    const mods = [];
+    if (e.ctrlKey) mods.push("Ctrl");
+    if (e.altKey) mods.push("Alt");
+    if (e.shiftKey) mods.push("Shift");
+    if (e.metaKey) mods.push("Meta");
+    if (mods.length === 0) return; // require at least one modifier for global hotkeys
+
+    const spec = [...mods, key].join("+");
+    renderHotkeyInput(inputEl, spec);
+    if (otherInputEl && otherInputEl.dataset.hotkey === spec) {
+      renderHotkeyInput(otherInputEl, "");
+    }
+    inputEl.blur();
+  });
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => renderHotkeyInput(inputEl, ""));
+  }
+  if (resetBtn) {
+    resetBtn.addEventListener("click", () => {
+      renderHotkeyInput(inputEl, defaultSpec);
+      if (otherInputEl && otherInputEl.dataset.hotkey === defaultSpec) {
+        renderHotkeyInput(otherInputEl, "");
+      }
+    });
+  }
+}
+
+setupHotkeyRecorder(els.hotkeyToggleInput, els.hotkeyToggleClearBtn, els.hotkeyToggleResetBtn, "Ctrl+Alt+Q", els.hotkeyNewNoteInput);
+setupHotkeyRecorder(els.hotkeyNewNoteInput, els.hotkeyNewNoteClearBtn, els.hotkeyNewNoteResetBtn, "Ctrl+Alt+N", els.hotkeyToggleInput);
 
 // Quit app button (only visible when running inside the native Windows/macOS host)
 if (els.quitAppBtn && !IS_STANDALONE_EDITOR && hasNativeHost()) {

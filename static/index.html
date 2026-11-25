@@ -199,6 +199,29 @@
           </select>
         </div>
 
+        <div class="field" id="settingsHotkeysSection">
+          <label id="settingsHotkeysLabel">Globale Tastenkürzel (Desktop-App)</label>
+          <div class="hotkey-grid">
+            <div class="hotkey-row">
+              <span class="hotkey-action-label" id="hotkeyToggleLabel">Hauptfenster ein-/ausblenden</span>
+              <div class="hotkey-input-group">
+                <input type="text" id="hotkeyToggleInput" class="hotkey-input" readonly placeholder="Deaktiviert" />
+                <button type="button" id="hotkeyToggleClearBtn" class="btn btn-ghost btn-sm" title="Deaktivieren">✕</button>
+                <button type="button" id="hotkeyToggleResetBtn" class="btn btn-ghost btn-sm" title="Standard wiederherstellen">↺</button>
+              </div>
+            </div>
+            <div class="hotkey-row">
+              <span class="hotkey-action-label" id="hotkeyNewNoteLabel">Neue Notiz öffnen</span>
+              <div class="hotkey-input-group">
+                <input type="text" id="hotkeyNewNoteInput" class="hotkey-input" readonly placeholder="Deaktiviert" />
+                <button type="button" id="hotkeyNewNoteClearBtn" class="btn btn-ghost btn-sm" title="Deaktivieren">✕</button>
+                <button type="button" id="hotkeyNewNoteResetBtn" class="btn btn-ghost btn-sm" title="Standard wiederherstellen">↺</button>
+              </div>
+            </div>
+          </div>
+          <small id="settingsHotkeysHint">Ins Feld klicken und gewünschte Kombination mit Modifier-Taste drücken (z. B. <code>Ctrl+Alt+Q</code>). Backspace oder ✕ deaktiviert das Kürzel.</small>
+        </div>
+
         <div id="testConnectionResult" class="test-result hidden" aria-live="polite"></div>
 
         <div class="modal-footer modal-footer-split">

@@ -34,6 +34,8 @@ namespace FiveQThoughtsHost
         public const int WM_HOTKEY = 0x0312;
         public const uint MOD_ALT = 0x0001;
         public const uint MOD_CONTROL = 0x0002;
+        public const uint MOD_SHIFT = 0x0004;
+        public const uint MOD_WIN = 0x0008;
         public const uint MOD_NOREPEAT = 0x4000;
         public const uint VK_N = 0x4E;
         public const uint VK_Q = 0x51;
@@ -161,7 +163,11 @@ namespace FiveQThoughtsHost
         private readonly List<EditorForm> editorForms = new List<EditorForm>();
         private int editorCascadeIndex;
         private NotifyIcon trayIcon;
+        private ToolStripMenuItem toggleMenuItem;
+        private ToolStripMenuItem newNoteMenuItem;
         private ToolStripMenuItem autostartItem;
+        private string currentHotkeyToggle = "Ctrl+Alt+Q";
+        private string currentHotkeyNewNote = "Ctrl+Alt+N";
         private Process backendProcess;
         private IntPtr backendJob = IntPtr.Zero;
         private StreamWriter backendLog;
@@ -208,10 +214,7 @@ namespace FiveQThoughtsHost
         {
             base.OnHandleCreated(e);
             ApplyTitleBarTheme();
-            hotkeyRegistered = Native.RegisterHotKey(Handle, HOTKEY_ID,
-                Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, Native.VK_Q);
-            hotkeyNewNoteRegistered = Native.RegisterHotKey(Handle, HOTKEY_NEW_NOTE_ID,
-                Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, Native.VK_N);
+            ApplyHotkeys(currentHotkeyToggle, currentHotkeyNewNote);
             BeginInvoke(new Action(async () => await InitializeAsync()));
         }
 
@@ -384,13 +387,24 @@ namespace FiveQThoughtsHost
                 OpenExternal(e.Uri);
             };
 
-            // Messages from web UI (e.g. Quit button or Ctrl+Q)
+            // Messages from web UI (e.g. Quit button, Ctrl+Q, dynamic hotkey updates)
             core.WebMessageReceived += (s, e) =>
             {
                 try
                 {
                     string msg = e.TryGetWebMessageAsString();
-                    if (msg == "quit") QuitApp();
+                    if (msg == "quit")
+                    {
+                        QuitApp();
+                    }
+                    else if (msg != null && msg.StartsWith("hotkeys:", StringComparison.Ordinal))
+                    {
+                        string payload = msg.Substring("hotkeys:".Length);
+                        string[] parts = payload.Split(new[] { '|' }, 2);
+                        string toggleSpec = parts.Length > 0 ? parts[0].Trim() : "";
+                        string newNoteSpec = parts.Length > 1 ? parts[1].Trim() : "";
+                        ApplyHotkeys(toggleSpec, newNoteSpec);
+                    }
                 }
                 catch { }
             };
@@ -694,20 +708,20 @@ namespace FiveQThoughtsHost
         {
             var menu = new ContextMenuStrip();
 
-            var toggleItem = new ToolStripMenuItem(L.T("FiveQThoughts anzeigen/verbergen", "Show/hide FiveQThoughts"))
+            toggleMenuItem = new ToolStripMenuItem(L.T("FiveQThoughts anzeigen/verbergen", "Show/hide FiveQThoughts"))
             {
-                ShortcutKeyDisplayString = "Ctrl+Alt+Q",
+                ShortcutKeyDisplayString = FormatHotkeyDisplay(currentHotkeyToggle),
                 Font = new Font(menu.Font, FontStyle.Bold)
             };
-            toggleItem.Click += (s, e) => ToggleWindow();
-            menu.Items.Add(toggleItem);
+            toggleMenuItem.Click += (s, e) => ToggleWindow();
+            menu.Items.Add(toggleMenuItem);
 
-            var newNoteItem = new ToolStripMenuItem(L.T("＋ Neue Notiz", "＋ New Note"))
+            newNoteMenuItem = new ToolStripMenuItem(L.T("＋ Neue Notiz", "＋ New Note"))
             {
-                ShortcutKeyDisplayString = "Ctrl+Alt+N"
+                ShortcutKeyDisplayString = FormatHotkeyDisplay(currentHotkeyNewNote)
             };
-            newNoteItem.Click += (s, e) => OpenNewNoteWindow();
-            menu.Items.Add(newNoteItem);
+            newNoteMenuItem.Click += (s, e) => OpenNewNoteWindow();
+            menu.Items.Add(newNoteMenuItem);
 
             var reloadItem = new ToolStripMenuItem(L.T("Aktualisieren", "Reload"));
             reloadItem.Click += (s, e) => ReloadPage();
@@ -769,6 +783,131 @@ namespace FiveQThoughtsHost
                 Visible = true
             };
             trayIcon.MouseClick += (s, e) => { if (e.Button == MouseButtons.Left) ToggleWindow(); };
+        }
+
+        // ------------------------------------------------------------------ global hotkeys
+
+        private static string FormatHotkeyDisplay(string spec)
+        {
+            if (string.IsNullOrWhiteSpace(spec)) return "";
+            return spec.Replace("Meta", "Win");
+        }
+
+        private static bool TryParseHotkey(string spec, out uint modifiers, out uint vk)
+        {
+            modifiers = 0;
+            vk = 0;
+            if (string.IsNullOrWhiteSpace(spec)) return false;
+
+            string[] parts = spec.Split(new[] { '+' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string raw in parts)
+            {
+                string token = raw.Trim();
+                switch (token.ToLowerInvariant())
+                {
+                    case "ctrl":
+                    case "control":
+                        modifiers |= Native.MOD_CONTROL;
+                        break;
+                    case "alt":
+                    case "option":
+                        modifiers |= Native.MOD_ALT;
+                        break;
+                    case "shift":
+                        modifiers |= Native.MOD_SHIFT;
+                        break;
+                    case "meta":
+                    case "win":
+                    case "cmd":
+                    case "super":
+                        modifiers |= Native.MOD_WIN;
+                        break;
+                    default:
+                        if (!TryParseVirtualKey(token, out vk)) return false;
+                        break;
+                }
+            }
+            return modifiers != 0 && vk != 0;
+        }
+
+        private static bool TryParseVirtualKey(string key, out uint vk)
+        {
+            vk = 0;
+            if (string.IsNullOrWhiteSpace(key)) return false;
+            string k = key.Trim().ToUpperInvariant();
+            if (k.Length == 1)
+            {
+                char c = k[0];
+                if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+                {
+                    vk = (uint)c;
+                    return true;
+                }
+            }
+            if (k.StartsWith("F") && int.TryParse(k.Substring(1), out int fnum) && fnum >= 1 && fnum <= 12)
+            {
+                vk = (uint)(0x70 + fnum - 1); // VK_F1..VK_F12
+                return true;
+            }
+            switch (k)
+            {
+                case "SPACE": vk = 0x20; return true;
+                case "TAB": vk = 0x09; return true;
+                case "ENTER": case "RETURN": vk = 0x0D; return true;
+                case "INSERT": vk = 0x2D; return true;
+                case "DELETE": vk = 0x2E; return true;
+                case "HOME": vk = 0x24; return true;
+                case "END": vk = 0x23; return true;
+                case "PAGEUP": vk = 0x21; return true;
+                case "PAGEDOWN": vk = 0x22; return true;
+                case "UP": vk = 0x26; return true;
+                case "DOWN": vk = 0x28; return true;
+                case "LEFT": vk = 0x25; return true;
+                case "RIGHT": vk = 0x27; return true;
+                default: return false;
+            }
+        }
+
+        public void ApplyHotkeys(string toggleSpec, string newNoteSpec)
+        {
+            currentHotkeyToggle = (toggleSpec ?? "").Trim();
+            currentHotkeyNewNote = (newNoteSpec ?? "").Trim();
+
+            if (IsHandleCreated)
+            {
+                if (hotkeyRegistered)
+                {
+                    Native.UnregisterHotKey(Handle, HOTKEY_ID);
+                    hotkeyRegistered = false;
+                }
+                if (hotkeyNewNoteRegistered)
+                {
+                    Native.UnregisterHotKey(Handle, HOTKEY_NEW_NOTE_ID);
+                    hotkeyNewNoteRegistered = false;
+                }
+
+                if (TryParseHotkey(currentHotkeyToggle, out uint mod1, out uint vk1))
+                {
+                    hotkeyRegistered = Native.RegisterHotKey(Handle, HOTKEY_ID, mod1 | Native.MOD_NOREPEAT, vk1);
+                }
+                if (TryParseHotkey(currentHotkeyNewNote, out uint mod2, out uint vk2))
+                {
+                    hotkeyNewNoteRegistered = Native.RegisterHotKey(Handle, HOTKEY_NEW_NOTE_ID, mod2 | Native.MOD_NOREPEAT, vk2);
+                }
+            }
+
+            string toggleDisp = FormatHotkeyDisplay(currentHotkeyToggle);
+            string newNoteDisp = FormatHotkeyDisplay(currentHotkeyNewNote);
+            Text = string.IsNullOrEmpty(toggleDisp)
+                ? "FiveQThoughts — TheBrain Quick Thoughts"
+                : $"FiveQThoughts — TheBrain Quick Thoughts ({toggleDisp})";
+            if (trayIcon != null)
+            {
+                string tip = string.IsNullOrEmpty(toggleDisp) ? "FiveQThoughts" : $"FiveQThoughts ({toggleDisp})";
+                trayIcon.Text = tip.Length > 63 ? tip.Substring(0, 63) : tip;
+            }
+            if (toggleMenuItem != null) toggleMenuItem.ShortcutKeyDisplayString = toggleDisp;
+            if (newNoteMenuItem != null) newNoteMenuItem.ShortcutKeyDisplayString = newNoteDisp;
         }
 
         // ------------------------------------------------------------------ editor windows
