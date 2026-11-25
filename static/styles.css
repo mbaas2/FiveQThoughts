@@ -1239,3 +1239,76 @@ button.bolt-icon {
 .about-body .modal-footer {
   justify-content: center;
 }
+
+/* Standalone Editor Window Mode (/?mode=editor) */
+body.editor-standalone {
+  height: 100vh;
+  overflow: hidden;
+  background: var(--modal-card-bg);
+}
+
+body.editor-standalone .topbar,
+body.editor-standalone .container {
+  display: none !important;
+}
+
+body.editor-standalone #editorModal {
+  position: fixed;
+  inset: 0;
+  padding: 0;
+  background: var(--modal-card-bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  display: flex;
+}
+
+body.editor-standalone #editorModal .modal-card {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+}
+
+body.editor-standalone #editorModal .modal-header {
+  flex-shrink: 0;
+}
+
+body.editor-standalone #editorModal #closeEditorBtn {
+  display: none;
+}
+
+body.editor-standalone #editorModal #editorForm {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+body.editor-standalone #editorModal #editorForm > .field:first-child {
+  flex: 1;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+}
+
+body.editor-standalone #editorModal #editorMarkdown {
+  flex: 1;
+  min-height: 120px;
+  resize: none;
+}
+
+body.editor-standalone #editorModal .modal-footer {
+  flex-shrink: 0;
+  margin-top: auto;
+}
+
+#quitAppBtn:hover {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.45);
+}

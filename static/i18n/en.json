@@ -19,6 +19,7 @@
     "refreshBtnTitle": "Reload (Key R)",
     "settingsBtn": "⚙ Settings",
     "settingsBtnTitle": "Settings: connection, API keys, display, language",
+    "quitBtnTitle": "Quit FiveQThoughts",
     "themeToggleTitle": "Toggle appearance (Auto / Light / Dark)",
     "languageTitle": "Select language / Sprache wählen",
     "backendLocal": "💻 Local",

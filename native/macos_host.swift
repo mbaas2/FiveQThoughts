@@ -10,8 +10,24 @@ private func hotKeyHandler(
     theEvent: EventRef?,
     userData: UnsafeMutableRawPointer?
 ) -> OSStatus {
+    var hotKeyID = EventHotKeyID()
+    if let ev = theEvent {
+        GetEventParameter(
+            ev,
+            EventParamName(kEventParamDirectObject),
+            EventParamType(typeEventHotKeyID),
+            nil,
+            MemoryLayout<EventHotKeyID>.size,
+            nil,
+            &hotKeyID
+        )
+    }
     DispatchQueue.main.async {
-        globalAppDelegate?.toggleWindow()
+        if hotKeyID.id == 2 {
+            globalAppDelegate?.openNewNoteWindow()
+        } else {
+            globalAppDelegate?.toggleWindow()
+        }
     }
     return noErr
 }
@@ -54,11 +70,14 @@ func createAppIcon() -> NSImage {
 }
 
 // MARK: - Application Delegate
-class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelegate, WKNavigationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var webView: WKWebView!
+    var editorWindows: [NSWindow] = []
+    var editorCascadeIndex: Int = 0
     var statusItem: NSStatusItem!
     var hotKeyRef: EventHotKeyRef?
+    var newNoteHotKeyRef: EventHotKeyRef?
     var eventHandlerRef: EventHandlerRef?
     var targetUrl: String
     var backendProcess: Process?
@@ -165,9 +184,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        // Hide window instead of quitting so global hotkey ⌃⌥Q remains active
-        sender.orderOut(nil)
-        return false
+        if sender === window {
+            // Hide main window instead of quitting so global hotkeys ⌃⌥Q / ⌃⌥N remain active
+            sender.orderOut(nil)
+            return false
+        }
+        return true
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        if let closingWin = notification.object as? NSWindow, closingWin !== window {
+            editorWindows.removeAll { $0 === closingWin }
+            if editorWindows.isEmpty {
+                editorCascadeIndex = 0
+            }
+        }
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if let body = message.body as? String, body == "quit" {
+            NSApp.terminate(nil)
+        }
     }
 
     // MARK: - Window & WebView
@@ -188,6 +225,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
 
         let config = WKWebViewConfiguration()
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        config.userContentController.add(self, name: "fiveq")
 
         webView = WKWebView(frame: rect, configuration: config)
         webView.autoresizingMask = [.width, .height]
@@ -236,16 +274,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        handleLoadFailure(error)
+        if webView === self.webView {
+            handleLoadFailure(error)
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        handleLoadFailure(error)
+        if webView === self.webView {
+            handleLoadFailure(error)
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        if webView.url?.absoluteString.hasPrefix(targetUrl) == true {
-            loadAttempts = 0
+        if webView === self.webView {
+            if webView.url?.absoluteString.hasPrefix(targetUrl) == true {
+                loadAttempts = 0
+            }
+        } else if let win = webView.window, win !== window {
+            if let pageTitle = webView.title, !pageTitle.isEmpty {
+                win.title = pageTitle
+            }
         }
     }
 
@@ -260,7 +308,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
-        panel.beginSheetModal(for: window) { result in
+        panel.beginSheetModal(for: webView.window ?? window) { result in
             if result == .OK {
                 completionHandler(panel.urls)
             } else {
@@ -269,17 +317,80 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         }
     }
 
-    // Open target="_blank" external links in default system browser
+    private func isAppUrl(_ url: URL) -> Bool {
+        guard let base = URL(string: targetUrl) else { return false }
+        return url.scheme == base.scheme && url.host == base.host && url.port == base.port
+    }
+
+    private func createEditorWindow(configuration: WKWebViewConfiguration?, initialUrl: URL?) -> WKWebView {
+        let rect = NSRect(x: 0, y: 0, width: 720, height: 640)
+        let editorWin = NSWindow(
+            contentRect: rect,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        editorWin.center()
+        let offset = CGFloat((editorCascadeIndex % 8) * 28)
+        editorCascadeIndex += 1
+        if offset > 0 {
+            editorWin.setFrameOrigin(NSPoint(x: editorWin.frame.origin.x + offset, y: editorWin.frame.origin.y - offset))
+        }
+        editorWin.title = "Neuer Quick Thought — FiveQThoughts"
+        editorWin.minSize = NSSize(width: 420, height: 380)
+        editorWin.backgroundColor = NSColor.windowBackgroundColor
+        editorWin.isReleasedWhenClosed = false
+        editorWin.delegate = self
+
+        let cfg: WKWebViewConfiguration
+        if let existing = configuration {
+            cfg = existing
+        } else {
+            cfg = WKWebViewConfiguration()
+            cfg.processPool = webView.configuration.processPool
+            cfg.websiteDataStore = webView.configuration.websiteDataStore
+            cfg.preferences.setValue(true, forKey: "developerExtrasEnabled")
+            cfg.userContentController.add(self, name: "fiveq")
+        }
+
+        let editorWebView = WKWebView(frame: rect, configuration: cfg)
+        editorWebView.autoresizingMask = [.width, .height]
+        editorWebView.uiDelegate = self
+        editorWebView.navigationDelegate = self
+        editorWebView.setValue(false, forKey: "drawsBackground")
+
+        editorWin.contentView = editorWebView
+        editorWindows.append(editorWin)
+        editorWin.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        if let url = initialUrl {
+            editorWebView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10))
+        }
+        return editorWebView
+    }
+
+    // Open local editor URLs in independent native windows; external links in default system browser
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if navigationAction.targetFrame == nil, let url = navigationAction.request.url {
-            NSWorkspace.shared.open(url)
+        guard navigationAction.targetFrame == nil, let url = navigationAction.request.url else {
+            return nil
         }
+        if isAppUrl(url) {
+            return createEditorWindow(configuration: configuration, initialUrl: nil)
+        }
+        NSWorkspace.shared.open(url)
         return nil
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        if let win = webView.window, win !== window {
+            win.close()
+        }
     }
 
     // MARK: - Menu Bar & Standard Keyboard Shortcuts (⌘C, ⌘V, ⌘A, ⌘Z, ⌘W, ⌘Q)
@@ -319,6 +430,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         mainMenu.addItem(windowMenuItem)
         let windowMenu = NSMenu(title: "Fenster")
         windowMenuItem.submenu = windowMenu
+        windowMenu.addItem(withTitle: "Neue Notiz", action: #selector(openNewNoteAction), keyEquivalent: "n")
+        windowMenu.addItem(NSMenuItem.separator())
         windowMenu.addItem(withTitle: "Neu laden", action: #selector(reloadWebView), keyEquivalent: "r")
         windowMenu.addItem(withTitle: "Fenster schließen (Hintergrund)", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowMenu.addItem(withTitle: "Im Dock ablegen", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
@@ -336,6 +449,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         let toggleItem = NSMenuItem(title: "FiveQThoughts anzeigen/verbergen (⌃⌥Q)", action: #selector(toggleWindowAction), keyEquivalent: "")
         toggleItem.target = self
         menu.addItem(toggleItem)
+
+        let newNoteItem = NSMenuItem(title: "＋ Neue Notiz (⌃⌥N)", action: #selector(openNewNoteAction), keyEquivalent: "")
+        newNoteItem.target = self
+        menu.addItem(newNoteItem)
 
         let reloadItem = NSMenuItem(title: "Aktualisieren", action: #selector(reloadWebView), keyEquivalent: "r")
         reloadItem.target = self
@@ -382,6 +499,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
             0,
             &hotKeyRef
         )
+
+        // kVK_ANSI_N = 0x2D (45), modifiers: controlKey + optionKey = ⌃⌥N (New Note)
+        let newNoteHotKeyID = EventHotKeyID(signature: OSType(0x35515448), id: 2)
+        RegisterEventHotKey(
+            UInt32(kVK_ANSI_N),
+            modifiers,
+            newNoteHotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &newNoteHotKeyRef
+        )
+    }
+
+    @objc func openNewNoteAction() {
+        openNewNoteWindow()
+    }
+
+    func openNewNoteWindow() {
+        let base = targetUrl.hasSuffix("/") ? String(targetUrl.dropLast()) : targetUrl
+        guard let url = URL(string: "\(base)/?mode=editor") else { return }
+        _ = createEditorWindow(configuration: nil, initialUrl: url)
     }
 
     @objc func toggleWindowAction() {

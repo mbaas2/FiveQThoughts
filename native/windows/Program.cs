@@ -35,6 +35,7 @@ namespace FiveQThoughtsHost
         public const uint MOD_ALT = 0x0001;
         public const uint MOD_CONTROL = 0x0002;
         public const uint MOD_NOREPEAT = 0x4000;
+        public const uint VK_N = 0x4E;
         public const uint VK_Q = 0x51;
         public static readonly IntPtr HWND_BROADCAST = new IntPtr(0xffff);
 
@@ -148,6 +149,7 @@ namespace FiveQThoughtsHost
     public class MainForm : Form
     {
         private const int HOTKEY_ID = 0x5154;
+        private const int HOTKEY_NEW_NOTE_ID = 0x5155;
         public static readonly uint WM_FIVEQ_SHOW = Native.RegisterWindowMessage("FiveQThoughts.ShowWindow");
 
         private readonly bool startHidden;
@@ -155,6 +157,9 @@ namespace FiveQThoughtsHost
         private readonly bool ownsBackend;
 
         private readonly WebView2 webView;
+        private CoreWebView2Environment webViewEnv;
+        private readonly List<EditorForm> editorForms = new List<EditorForm>();
+        private int editorCascadeIndex;
         private NotifyIcon trayIcon;
         private ToolStripMenuItem autostartItem;
         private Process backendProcess;
@@ -162,6 +167,7 @@ namespace FiveQThoughtsHost
         private StreamWriter backendLog;
         private bool allowExit;
         private bool hotkeyRegistered;
+        private bool hotkeyNewNoteRegistered;
         private bool trayHintShown;
         private bool webViewReady;
 
@@ -204,6 +210,8 @@ namespace FiveQThoughtsHost
             ApplyTitleBarTheme();
             hotkeyRegistered = Native.RegisterHotKey(Handle, HOTKEY_ID,
                 Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, Native.VK_Q);
+            hotkeyNewNoteRegistered = Native.RegisterHotKey(Handle, HOTKEY_NEW_NOTE_ID,
+                Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, Native.VK_N);
             BeginInvoke(new Action(async () => await InitializeAsync()));
         }
 
@@ -215,8 +223,8 @@ namespace FiveQThoughtsHost
             {
                 Directory.CreateDirectory(Paths.DataDir);
                 IntPtr _ = webView.Handle; // make sure the control exists even when started hidden (--hidden)
-                var env =await CoreWebView2Environment.CreateAsync(null, Paths.WebViewDataDir);
-                await webView.EnsureCoreWebView2Async(env);
+                webViewEnv = await CoreWebView2Environment.CreateAsync(null, Paths.WebViewDataDir);
+                await webView.EnsureCoreWebView2Async(webViewEnv);
                 ConfigureWebView(webView.CoreWebView2);
                 webViewReady = true;
             }
@@ -243,10 +251,19 @@ namespace FiveQThoughtsHost
 
         protected override void WndProc(ref Message m)
         {
-            if (m.Msg == Native.WM_HOTKEY && m.WParam.ToInt32() == HOTKEY_ID)
+            if (m.Msg == Native.WM_HOTKEY)
             {
-                ToggleWindow();
-                return;
+                int id = m.WParam.ToInt32();
+                if (id == HOTKEY_ID)
+                {
+                    ToggleWindow();
+                    return;
+                }
+                if (id == HOTKEY_NEW_NOTE_ID)
+                {
+                    OpenNewNoteWindow();
+                    return;
+                }
             }
             if (WM_FIVEQ_SHOW != 0 && m.Msg == WM_FIVEQ_SHOW)
             {
@@ -276,7 +293,13 @@ namespace FiveQThoughtsHost
             }
 
             SaveWindowBounds();
+            foreach (var ef in editorForms.ToArray())
+            {
+                try { ef.Close(); } catch { }
+            }
+            editorForms.Clear();
             if (hotkeyRegistered) Native.UnregisterHotKey(Handle, HOTKEY_ID);
+            if (hotkeyNewNoteRegistered) Native.UnregisterHotKey(Handle, HOTKEY_NEW_NOTE_ID);
             trayIcon.Visible = false;
             trayIcon.Dispose();
             StopBackend();
@@ -287,6 +310,8 @@ namespace FiveQThoughtsHost
         {
             // Ctrl+W hides the window (analog to ⌘W)
             if (e.Control && e.KeyCode == Keys.W) { e.Handled = true; Close(); return; }
+            // Ctrl+Q quits the app (analog to ⌘Q)
+            if (e.Control && e.KeyCode == Keys.Q) { e.Handled = true; QuitApp(); return; }
             base.OnKeyDown(e);
         }
 
@@ -330,11 +355,44 @@ namespace FiveQThoughtsHost
             core.Settings.IsZoomControlEnabled = true;
             core.Settings.AreBrowserAcceleratorKeysEnabled = true;
 
-            // target="_blank" / window.open → default system browser
-            core.NewWindowRequested += (s, e) =>
+            // target="_blank" / window.open → independent native window for local app URLs, else system browser
+            core.NewWindowRequested += async (s, e) =>
             {
+                if (IsAppUrl(e.Uri) && webViewEnv != null)
+                {
+                    var deferral = e.GetDeferral();
+                    try
+                    {
+                        var editor = CreateEditorForm();
+                        editor.Show();
+                        await editor.InitializeForPopupAsync(webViewEnv);
+                        e.NewWindow = editor.CoreWebView2;
+                        e.Handled = true;
+                        editor.ActivateAndFocus();
+                    }
+                    catch
+                    {
+                        e.Handled = true;
+                    }
+                    finally
+                    {
+                        deferral.Complete();
+                    }
+                    return;
+                }
                 e.Handled = true;
                 OpenExternal(e.Uri);
+            };
+
+            // Messages from web UI (e.g. Quit button or Ctrl+Q)
+            core.WebMessageReceived += (s, e) =>
+            {
+                try
+                {
+                    string msg = e.TryGetWebMessageAsString();
+                    if (msg == "quit") QuitApp();
+                }
+                catch { }
             };
 
             // Links that would navigate away from the local UI → default system browser
@@ -361,7 +419,7 @@ namespace FiveQThoughtsHost
             };
         }
 
-        private bool IsAppUrl(string uri)
+        internal bool IsAppUrl(string uri)
         {
             if (string.IsNullOrEmpty(uri)) return true;
             if (uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
@@ -377,7 +435,7 @@ namespace FiveQThoughtsHost
             catch { return false; }
         }
 
-        private static void OpenExternal(string uri)
+        internal static void OpenExternal(string uri)
         {
             if (string.IsNullOrEmpty(uri)) return;
             if (!(uri.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
@@ -644,6 +702,13 @@ namespace FiveQThoughtsHost
             toggleItem.Click += (s, e) => ToggleWindow();
             menu.Items.Add(toggleItem);
 
+            var newNoteItem = new ToolStripMenuItem(L.T("＋ Neue Notiz", "＋ New Note"))
+            {
+                ShortcutKeyDisplayString = "Ctrl+Alt+N"
+            };
+            newNoteItem.Click += (s, e) => OpenNewNoteWindow();
+            menu.Items.Add(newNoteItem);
+
             var reloadItem = new ToolStripMenuItem(L.T("Aktualisieren", "Reload"));
             reloadItem.Click += (s, e) => ReloadPage();
             menu.Items.Add(reloadItem);
@@ -706,9 +771,43 @@ namespace FiveQThoughtsHost
             trayIcon.MouseClick += (s, e) => { if (e.Button == MouseButtons.Left) ToggleWindow(); };
         }
 
+        // ------------------------------------------------------------------ editor windows
+
+        private EditorForm CreateEditorForm()
+        {
+            int offset = (editorCascadeIndex % 8) * 28;
+            editorCascadeIndex++;
+            var editor = new EditorForm(this, offset);
+            editorForms.Add(editor);
+            editor.FormClosed += (s, e) =>
+            {
+                editorForms.Remove(editor);
+                if (editorForms.Count == 0) editorCascadeIndex = 0;
+            };
+            return editor;
+        }
+
+        public async void OpenNewNoteWindow()
+        {
+            if (!webViewReady || webViewEnv == null || string.IsNullOrEmpty(targetUrl))
+            {
+                ShowAndActivate();
+                return;
+            }
+            try
+            {
+                var editor = CreateEditorForm();
+                editor.Show();
+                editor.ActivateAndFocus();
+                string url = targetUrl.TrimEnd('/') + "/?mode=editor";
+                await editor.InitializeAndNavigateAsync(webViewEnv, url);
+            }
+            catch { }
+        }
+
         // ------------------------------------------------------------------ helpers
 
-        private static Icon LoadAppIcon()
+        internal static Icon LoadAppIcon()
         {
             try
             {
@@ -721,7 +820,7 @@ namespace FiveQThoughtsHost
             return Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         }
 
-        private static bool IsSystemDarkMode()
+        internal static bool IsSystemDarkMode()
         {
             try
             {
@@ -779,6 +878,125 @@ namespace FiveQThoughtsHost
                     $"{r.X},{r.Y},{r.Width},{r.Height},{(WindowState == FormWindowState.Maximized ? 1 : 0)}");
             }
             catch { }
+        }
+    }
+
+    internal class EditorForm : Form
+    {
+        private readonly MainForm mainForm;
+        private readonly WebView2 webView;
+        private bool webViewReady;
+
+        public CoreWebView2 CoreWebView2 => webView.CoreWebView2;
+
+        public EditorForm(MainForm mainForm, int cascadeOffset)
+        {
+            this.mainForm = mainForm;
+            Text = L.T("Neuer Quick Thought — FiveQThoughts", "New Quick Thought — FiveQThoughts");
+            Icon = MainForm.LoadAppIcon();
+            Size = new Size(720, 640);
+            MinimumSize = new Size(420, 380);
+            StartPosition = FormStartPosition.Manual;
+            BackColor = MainForm.IsSystemDarkMode() ? Color.FromArgb(15, 20, 28) : Color.FromArgb(245, 247, 250);
+            KeyPreview = true;
+
+            Rectangle wa = Screen.FromPoint(Cursor.Position).WorkingArea;
+            int x = wa.Left + Math.Max(0, (wa.Width - Width) / 2) + cascadeOffset;
+            int y = wa.Top + Math.Max(0, (wa.Height - Height) / 2) + cascadeOffset;
+            if (x + Width > wa.Right) x = Math.Max(wa.Left, wa.Right - Width);
+            if (y + Height > wa.Bottom) y = Math.Max(wa.Top, wa.Bottom - Height);
+            Location = new Point(x, y);
+
+            webView = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor };
+            Controls.Add(webView);
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            try
+            {
+                int dark = MainForm.IsSystemDarkMode() ? 1 : 0;
+                Native.DwmSetWindowAttribute(Handle, 20, ref dark, sizeof(int));
+            }
+            catch { }
+        }
+
+        public async Task InitializeForPopupAsync(CoreWebView2Environment env)
+        {
+            IntPtr _ = webView.Handle;
+            await webView.EnsureCoreWebView2Async(env);
+            ConfigureWebView(webView.CoreWebView2);
+            webViewReady = true;
+        }
+
+        public async Task InitializeAndNavigateAsync(CoreWebView2Environment env, string url)
+        {
+            await InitializeForPopupAsync(env);
+            webView.CoreWebView2.Navigate(url);
+        }
+
+        public void ActivateAndFocus()
+        {
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+            Activate();
+            BringToFront();
+            Native.SetForegroundWindow(Handle);
+            if (webViewReady) webView.Focus();
+        }
+
+        private void ConfigureWebView(CoreWebView2 core)
+        {
+            core.Settings.AreDevToolsEnabled = true;
+            core.Settings.IsStatusBarEnabled = false;
+            core.Settings.IsZoomControlEnabled = true;
+            core.Settings.AreBrowserAcceleratorKeysEnabled = true;
+
+            core.WindowCloseRequested += (s, e) => Close();
+
+            core.DocumentTitleChanged += (s, e) =>
+            {
+                if (!string.IsNullOrWhiteSpace(core.DocumentTitle))
+                    Text = core.DocumentTitle;
+            };
+
+            core.NewWindowRequested += (s, e) =>
+            {
+                e.Handled = true;
+                MainForm.OpenExternal(e.Uri);
+            };
+
+            core.NavigationStarting += (s, e) =>
+            {
+                if (!mainForm.IsAppUrl(e.Uri))
+                {
+                    e.Cancel = true;
+                    MainForm.OpenExternal(e.Uri);
+                }
+            };
+
+            core.PermissionRequested += (s, e) =>
+            {
+                if (e.PermissionKind == CoreWebView2PermissionKind.ClipboardRead && mainForm.IsAppUrl(e.Uri))
+                    e.State = CoreWebView2PermissionState.Allow;
+            };
+
+            core.WebMessageReceived += (s, e) =>
+            {
+                try
+                {
+                    string msg = e.TryGetWebMessageAsString();
+                    if (msg == "quit") mainForm.QuitApp();
+                }
+                catch { }
+            };
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.Control && e.KeyCode == Keys.W) { e.Handled = true; Close(); return; }
+            if (e.Control && e.KeyCode == Keys.Q) { e.Handled = true; mainForm.QuitApp(); return; }
+            base.OnKeyDown(e);
         }
     }
 

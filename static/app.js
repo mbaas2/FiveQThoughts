@@ -4,6 +4,36 @@
 // Leave empty to hide the link.
 const COFFEE_URL = "https://buymeacoffee.com/mbaas";
 
+const URL_PARAMS = new URLSearchParams(window.location.search);
+const IS_STANDALONE_EDITOR = URL_PARAMS.get("mode") === "editor";
+const STANDALONE_EDIT_ID = URL_PARAMS.get("id") || null;
+if (IS_STANDALONE_EDITOR) {
+  document.body.classList.add("editor-standalone");
+}
+
+const syncChannel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("fiveq-sync") : null;
+
+function hasNativeHost() {
+  return Boolean(
+    (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === "function") ||
+    (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.fiveq)
+  );
+}
+
+function postNativeMessage(msg) {
+  try {
+    if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === "function") {
+      window.chrome.webview.postMessage(msg);
+      return true;
+    }
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.fiveq) {
+      window.webkit.messageHandlers.fiveq.postMessage(msg);
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
 const state = {
   cards: [],
   allSummaries: [],
@@ -62,6 +92,7 @@ const els = {
   themeToggleBtn: document.getElementById("themeToggleBtn"),
   themeToggleIcon: document.getElementById("themeToggleIcon"),
   settingsBtn: document.getElementById("settingsBtn"),
+  quitAppBtn: document.getElementById("quitAppBtn"),
   errorBanner: document.getElementById("errorBanner"),
   cardsContainer: document.querySelector(".container"),
   cardsGrid: document.getElementById("cardsGrid"),
@@ -213,6 +244,11 @@ function applyStaticTranslations() {
   els.refreshBtn.title = t("topbar.refreshBtnTitle");
   els.settingsBtn.textContent = t("topbar.settingsBtn");
   els.settingsBtn.title = t("topbar.settingsBtnTitle");
+  if (els.quitAppBtn) {
+    const quitHint = state.platform === "Darwin" ? " (⌘Q)" : " (Ctrl+Q)";
+    els.quitAppBtn.title = `${t("topbar.quitBtnTitle")}${quitHint}`;
+    els.quitAppBtn.setAttribute("aria-label", t("topbar.quitBtnTitle"));
+  }
   if (els.langSelect) {
     els.langSelect.title = t("topbar.languageTitle");
   }
@@ -221,6 +257,9 @@ function applyStaticTranslations() {
   els.editorModalTitle.textContent = state.editingThoughtId
     ? t("editor.titleEdit")
     : t("editor.titleCreate");
+  if (IS_STANDALONE_EDITOR) {
+    document.title = `${els.editorModalTitle.textContent} — FiveQThoughts`;
+  }
   els.closeEditorBtn.setAttribute("aria-label", t("editor.closeAria"));
   els.editorNoteLabel.textContent = t("editor.noteLabel");
   els.editorNoteHint.innerHTML = t("editor.noteHintHtml");
@@ -397,6 +436,9 @@ function applyTheme(theme, persist = false) {
 
   if (persist) {
     saveThemePreference(state.theme);
+    if (syncChannel && !IS_STANDALONE_EDITOR) {
+      syncChannel.postMessage({ type: "config-changed", theme: state.theme });
+    }
   }
 }
 
@@ -647,6 +689,10 @@ async function deleteThoughtAction(thoughtId) {
       throw new Error(errData.error || `HTTP ${resp.status}`);
     }
 
+    if (IS_STANDALONE_EDITOR) {
+      return true;
+    }
+
     state.cards = state.cards.filter((c) => c.id !== thoughtId);
     state.allSummaries = state.allSummaries.filter((s) => s.id !== thoughtId);
     state.totalCount = Math.max(0, state.totalCount - 1);
@@ -713,13 +759,24 @@ function parseLinksFromTextarea(raw) {
   return result;
 }
 
-function openCreateModal() {
+function openEditorWindow(thoughtId = null) {
+  const url = thoughtId
+    ? `/?mode=editor&id=${encodeURIComponent(thoughtId)}`
+    : "/?mode=editor";
+  const win = window.open(url, "_blank", "width=720,height=640,resizable=yes,scrollbars=yes");
+  return Boolean(win);
+}
+
+function populateCreateModal() {
   state.editingThoughtId = null;
   state.existingFiles = [];
   state.deletedFileIds = [];
   state.stagedAttachments = [];
 
   els.editorModalTitle.textContent = t("editor.titleCreate");
+  if (IS_STANDALONE_EDITOR) {
+    document.title = `${els.editorModalTitle.textContent} — FiveQThoughts`;
+  }
   els.editorMarkdown.value = "";
   els.editorLinks.value = "";
   if (els.deleteEditorBtn) els.deleteEditorBtn.classList.add("hidden");
@@ -729,13 +786,16 @@ function openCreateModal() {
   setTimeout(() => els.editorMarkdown.focus(), 50);
 }
 
-function openEditModal(card) {
+function populateEditModal(card) {
   state.editingThoughtId = card.id;
   state.existingFiles = [...(card.attachedImages || []), ...(card.otherFiles || [])];
   state.deletedFileIds = [];
   state.stagedAttachments = [];
 
   els.editorModalTitle.textContent = t("editor.titleEdit");
+  if (IS_STANDALONE_EDITOR) {
+    document.title = `${els.editorModalTitle.textContent} — FiveQThoughts`;
+  }
   els.editorMarkdown.value = card.markdown || "";
   els.editorLinks.value = formatLinksForTextarea(card.links || []);
   if (els.deleteEditorBtn) els.deleteEditorBtn.classList.remove("hidden");
@@ -745,7 +805,25 @@ function openEditModal(card) {
   setTimeout(() => els.editorMarkdown.focus(), 50);
 }
 
+function openCreateModal() {
+  if (!IS_STANDALONE_EDITOR && openEditorWindow(null)) {
+    return;
+  }
+  populateCreateModal();
+}
+
+function openEditModal(card) {
+  if (!IS_STANDALONE_EDITOR && card?.id && openEditorWindow(card.id)) {
+    return;
+  }
+  populateEditModal(card);
+}
+
 function closeEditorModal() {
+  if (IS_STANDALONE_EDITOR) {
+    window.close();
+    return;
+  }
   els.editorModal.classList.add("hidden");
   state.editingThoughtId = null;
   if (els.deleteEditorBtn) els.deleteEditorBtn.classList.add("hidden");
@@ -889,6 +967,11 @@ async function saveEditorSubmit(e) {
       if (!resp.ok) {
         throw new Error(data.error || `HTTP ${resp.status}`);
       }
+      if (IS_STANDALONE_EDITOR) {
+        if (syncChannel) syncChannel.postMessage({ type: "thoughts-changed", action: "updated" });
+        window.close();
+        return;
+      }
       closeEditorModal();
       showToast(t("toasts.thoughtUpdated"));
       await loadThoughts(false);
@@ -908,6 +991,11 @@ async function saveEditorSubmit(e) {
       const data = await resp.json();
       if (!resp.ok) {
         throw new Error(data.error || `HTTP ${resp.status}`);
+      }
+      if (IS_STANDALONE_EDITOR) {
+        if (syncChannel) syncChannel.postMessage({ type: "thoughts-changed", action: "created" });
+        window.close();
+        return;
       }
       closeEditorModal();
       showToast(t("toasts.thoughtCreated"));
@@ -1462,6 +1550,9 @@ async function loadConfig() {
 async function switchLanguage(newLangPref) {
   localStorage.setItem("fiveq_lang", newLangPref);
   await loadTranslations(newLangPref);
+  if (syncChannel && !IS_STANDALONE_EDITOR) {
+    syncChannel.postMessage({ type: "config-changed", language: newLangPref });
+  }
   try {
     await fetch("/api/config", {
       method: "POST",
@@ -1552,13 +1643,24 @@ els.closeEditorBtn.addEventListener("click", closeEditorModal);
 els.cancelEditorBtn.addEventListener("click", closeEditorModal);
 els.editorForm.addEventListener("submit", saveEditorSubmit);
 
+async function deleteFromEditor(idToDelete) {
+  if (IS_STANDALONE_EDITOR) {
+    const ok = await deleteThoughtAction(idToDelete);
+    if (ok) {
+      if (syncChannel) syncChannel.postMessage({ type: "thoughts-changed", action: "deleted" });
+      window.close();
+    }
+  } else {
+    closeEditorModal();
+    await deleteThoughtAction(idToDelete);
+  }
+}
+
 if (els.deleteEditorBtn) {
   els.deleteEditorBtn.addEventListener("click", async () => {
     if (!state.editingThoughtId) return;
     if (state.instantDelete) {
-      const idToDelete = state.editingThoughtId;
-      closeEditorModal();
-      await deleteThoughtAction(idToDelete);
+      await deleteFromEditor(state.editingThoughtId);
     } else {
       els.deleteEditorBtn.classList.add("hidden");
       els.deleteEditorConfirmGroup.classList.remove("hidden");
@@ -1569,9 +1671,7 @@ if (els.deleteEditorBtn) {
 if (els.deleteEditorConfirmYesBtn) {
   els.deleteEditorConfirmYesBtn.addEventListener("click", async () => {
     if (!state.editingThoughtId) return;
-    const idToDelete = state.editingThoughtId;
-    closeEditorModal();
-    await deleteThoughtAction(idToDelete);
+    await deleteFromEditor(state.editingThoughtId);
   });
 }
 
@@ -1615,6 +1715,12 @@ els.autoSyncToggle.addEventListener("change", () => {
 
 els.instantDeleteToggle.addEventListener("change", () => {
   state.instantDelete = els.instantDeleteToggle.checked;
+  try {
+    localStorage.setItem("fiveq_instant_delete", state.instantDelete ? "1" : "0");
+  } catch (_) {}
+  if (syncChannel) {
+    syncChannel.postMessage({ type: "config-changed", instantDelete: state.instantDelete });
+  }
   state.confirmingDeleteId = null;
   renderCards();
 });
@@ -1937,8 +2043,16 @@ document.addEventListener("keydown", (e) => {
   const inInput = activeTag === "INPUT" || activeTag === "TEXTAREA";
 
   if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+    if (!IS_STANDALONE_EDITOR) {
+      e.preventDefault();
+      openSettingsModal();
+    }
+    return;
+  }
+
+  if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "q" || e.key === "Q") && hasNativeHost()) {
     e.preventDefault();
-    openSettingsModal();
+    postNativeMessage("quit");
     return;
   }
 
@@ -1956,7 +2070,7 @@ document.addEventListener("keydown", (e) => {
       state.confirmingDeleteId = null;
       renderCards();
     }
-  } else if (!inInput && !e.metaKey && !e.ctrlKey) {
+  } else if (!IS_STANDALONE_EDITOR && !inInput && !e.metaKey && !e.ctrlKey) {
     if (e.key === "r" || e.key === "R") {
       loadThoughts(true);
     } else if (e.key === "n" || e.key === "N") {
@@ -1993,12 +2107,37 @@ if (window.matchMedia) {
   });
 }
 
+// Quit app button (only visible when running inside the native Windows/macOS host)
+if (els.quitAppBtn && !IS_STANDALONE_EDITOR && hasNativeHost()) {
+  els.quitAppBtn.classList.remove("hidden");
+  els.quitAppBtn.addEventListener("click", () => {
+    postNativeMessage("quit");
+  });
+}
+
+// Cross-window sync (main window <-> standalone editor windows)
+if (syncChannel) {
+  syncChannel.onmessage = async (event) => {
+    const msg = event.data || {};
+    if (!IS_STANDALONE_EDITOR && msg.type === "thoughts-changed") {
+      if (msg.action === "created") showToast(t("toasts.thoughtCreated"));
+      else if (msg.action === "updated") showToast(t("toasts.thoughtUpdated"));
+      else if (msg.action === "deleted") showToast(t("toasts.thoughtDeletedAndLoaded"));
+      await loadThoughts(false);
+    } else if (IS_STANDALONE_EDITOR && msg.type === "config-changed") {
+      if (msg.theme) applyTheme(msg.theme, false);
+      if (msg.language) await loadTranslations(msg.language);
+      if (typeof msg.instantDelete === "boolean") state.instantDelete = msg.instantDelete;
+    }
+  };
+}
+
 // Window resize & ResizeObserver for dynamic full-space grid tiles
 window.addEventListener("resize", () => {
-  updateGridLayout();
+  if (!IS_STANDALONE_EDITOR) updateGridLayout();
 });
 
-if (window.ResizeObserver && els.cardsContainer) {
+if (window.ResizeObserver && els.cardsContainer && !IS_STANDALONE_EDITOR) {
   const resizeObserver = new ResizeObserver(() => {
     updateGridLayout();
   });
@@ -2007,7 +2146,35 @@ if (window.ResizeObserver && els.cardsContainer) {
 
 // Initialize
 (async function init() {
+  try {
+    const savedInstant = localStorage.getItem("fiveq_instant_delete");
+    if (savedInstant === "1") {
+      state.instantDelete = true;
+      if (els.instantDeleteToggle) els.instantDeleteToggle.checked = true;
+    }
+  } catch (_) {}
+
   await loadConfig();
+
+  if (IS_STANDALONE_EDITOR) {
+    if (STANDALONE_EDIT_ID) {
+      try {
+        const resp = await fetch(`/api/thoughts/${encodeURIComponent(STANDALONE_EDIT_ID)}`);
+        const data = await resp.json();
+        if (!resp.ok) {
+          throw new Error(data.error || `HTTP ${resp.status}`);
+        }
+        populateEditModal(data);
+      } catch (err) {
+        populateCreateModal();
+        showToast(t("toasts.genericError", { error: err.message }), true);
+      }
+    } else {
+      populateCreateModal();
+    }
+    return;
+  }
+
   await loadThoughts(true);
   updateGridLayout();
   startPolling();
